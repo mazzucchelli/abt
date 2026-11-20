@@ -5,6 +5,7 @@ import {
   type LifecycleState,
   type NewTicket,
   type StructuredComment,
+  type RiskTier,
   type Ticket,
   type Tracker,
 } from "./contract.ts";
@@ -73,6 +74,10 @@ export class InMemoryTracker implements Tracker {
 
   async attachLink(id: string, link: Link): Promise<void> {
     this.#get(id).links.push({ ...link });
+  }
+
+  async setRisk(id: string, tier: RiskTier): Promise<void> {
+    this.#get(id).risk = tier;
   }
 
   #get(id: string): Ticket {

@@ -1,4 +1,4 @@
-/** The closed tracker contract: eight operations, tracker-neutral. */
+/** The closed tracker contract: nine operations, tracker-neutral. */
 
 export const LIFECYCLE_STATES = [
   "Todo",
@@ -73,6 +73,8 @@ export interface Tracker {
   /** Creates an abt-marked ticket in Todo. */
   createTicket(input: NewTicket): Promise<Ticket>;
   attachLink(id: string, link: Link): Promise<void>;
+  /** Sets the ticket's risk tier label, replacing any other tier label and leaving every other label alone. */
+  setRisk(id: string, tier: RiskTier): Promise<void>;
 }
 
 const MARKER = /\n\n<!-- abt:(\S+) ([A-Za-z0-9+/=]*) -->\s*$/;

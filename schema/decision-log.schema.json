@@ -58,6 +58,11 @@
             "properties": {
               "tier": { "enum": ["low", "medium", "high"] },
               "floor": { "enum": ["low", "medium", "high"] },
+              "moment": { "enum": ["intake", "ask-point", "landing"] },
+              "judged": { "enum": ["low", "medium", "high"] },
+              "failure": { "type": "string", "minLength": 1 },
+              "summarised": { "type": "boolean" },
+              "askAgain": { "type": "boolean" },
               "reasons": { "type": "array", "items": { "type": "string" } }
             },
             "additionalProperties": false

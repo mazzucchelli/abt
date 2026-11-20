@@ -232,5 +232,13 @@ export async function createLinearTracker(config: TrackerConfig, opts: LinearOpt
       );
       if (!r.attachmentCreate.success) throw new Error(`Linear refused the link on ${id}`);
     },
+
+    async setRisk(id, tier) {
+      const names = config.labels.risk;
+      await update(id, {
+        addedLabelIds: [labelIds.get(names[tier])!],
+        removedLabelIds: RISK_TIERS.filter((r) => r !== tier).map((r) => labelIds.get(names[r])!),
+      });
+    },
   };
 }

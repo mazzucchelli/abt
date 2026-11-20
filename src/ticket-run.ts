@@ -1,6 +1,7 @@
 import { runPass, type PassDeps } from "./pass.ts";
 import { treeViolations } from "./invariants.ts";
 import type { DecisionRecord, Result } from "./log/record.ts";
+import { assessTicket, type RiskDeps } from "./risk/assess.ts";
 import { tierFor } from "./routing.ts";
 import { parseTree, TreeError } from "./tree.ts";
 import { LayeredTrees, resolveTree, type TreeStore } from "./trees.ts";
@@ -10,6 +11,8 @@ export interface TicketRunDeps extends Omit<PassDeps, "tree" | "run" | "file"> {
   plugin: TreeStore;
   /** Trees from the project's default branch; they replace plugin trees of the same name. */
   project: TreeStore;
+  /** Risk assessment at intake: the classifier and the project's risk map. Without it the tier is the ticket's own, else medium. */
+  risk?: Pick<RiskDeps, "classifier" | "map" | "timeoutMs" | "minConfidence" | "maxPatchChars">;
 }
 
 export interface TicketRunResult {
@@ -58,11 +61,15 @@ export async function runTicket(deps: TicketRunDeps): Promise<TicketRunResult> {
   const pass = (name: Name) => runPass({ ...deps, run, trees, tree: sources[name].source, file: sources[name].file });
 
   if (!log.read(ticket).some((r) => r.kind === "risk-assessment")) {
-    const { tier, why } = tierFor(await tracker.readTicket(ticket));
-    log.append(ticket, {
-      run, node: null, kind: "risk-assessment", decision: `risk tier ${tier}`, why, evidence: null, result: "ok",
-      payload: { tier, reasons: [why] },
-    });
+    if (deps.risk) {
+      await assessTicket({ log, tracker, ...deps.risk }, { ticket, run, moment: "intake" });
+    } else {
+      const { tier, why } = tierFor(await tracker.readTicket(ticket));
+      log.append(ticket, {
+        run, node: null, kind: "risk-assessment", decision: `risk tier ${tier}`, why, evidence: null, result: "ok",
+        payload: { tier, reasons: [why] },
+      });
+    }
   }
 
   const claim = await pass("claim");

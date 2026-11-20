@@ -109,3 +109,21 @@ test("credentials resolve from env or Keychain and fail loudly when absent", () 
   assert.throws(() => resolveCredential({ env: "NOPE" }, sources), /environment variable NOPE/);
   assert.throws(() => resolveCredential({ keychain: "nope" }, sources), /Keychain item "nope"/);
 });
+
+test("linear: setRisk adds the tier label and removes the other tier labels, touching nothing else", async () => {
+  let update: { id: string; input: Record<string, unknown> } | undefined;
+  const tracker = await createLinearTracker(config, {
+    apiKey: "k",
+    fetch: (async (_u: unknown, init: RequestInit) => {
+      const { query, variables } = JSON.parse(String(init.body));
+      if (/issueUpdate/.test(query)) {
+        update = variables;
+        return new Response(JSON.stringify({ data: { issueUpdate: { success: true } } }));
+      }
+      return setupResponse(allStates, allLabels)();
+    }) as typeof fetch,
+  });
+  await tracker.setRisk("ABT-1", "high");
+  assert.equal(update!.id, "ABT-1");
+  assert.deepEqual(update!.input, { addedLabelIds: ["risk:high"], removedLabelIds: ["risk:low", "risk:medium"] });
+});
