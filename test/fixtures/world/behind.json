@@ -1,0 +1,8 @@
+{
+  "now": "2026-03-01T09:00:00.000Z",
+  "tickets": [{ "title": "Add the thing", "body": "..." }],
+  "codeHost": {
+    "FAKE-1": { "checks": { "branch-up-to-date": false, "required-checks-green": true } }
+  },
+  "harness": { "tdd-afk": [{ "result": "ok" }] }
+}
