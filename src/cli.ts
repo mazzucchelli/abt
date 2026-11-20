@@ -10,6 +10,7 @@ import { renderRun } from "./log/show.ts";
 import { abtHome, DecisionLog, LogError } from "./log/store.ts";
 import type { RecordInput } from "./log/record.ts";
 import { DirTrees, LayeredTrees } from "./trees.ts";
+import { runnerCommand } from "./runner/cli.ts";
 import { validateWithUses } from "./validate.ts";
 
 const STUBS = ["onboard", "upgrade"];
@@ -18,6 +19,7 @@ const USAGE = `usage: abt <command>
 commands:
   run        run one pass of a behavior tree on a ticket
   log        append to or show a ticket's decision log
+  runner     start, stop or inspect the runner daemon
   onboard    onboard a repo (not implemented)
   validate   validate a behavior-tree YAML file
   upgrade    upgrade abt (not implemented)
@@ -49,6 +51,8 @@ async function main(argv: string[]): Promise<number> {
   if (command === "run") return runCommand(rest);
 
   if (command === "log") return logCommand(rest);
+
+  if (command === "runner") return runnerCommand(rest);
 
   if (command && STUBS.includes(command)) {
     console.error(`abt ${command}: not implemented`);
