@@ -266,6 +266,7 @@ class Pass {
       feedback: this.#d.feedback ?? { commands: [] },
       ticket,
       node: node.id,
+      run: this.#run,
       ...(session && { session }),
     });
     return { result: out.result, why: out.exitStatus === null ? out.why : `${out.why} (exit ${out.exitStatus})`, worker: out.sessionId, evidence: out.transcriptPath };

@@ -3,7 +3,7 @@ import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { systemSources } from "../../tracker/credentials.ts";
 import type { HarnessAdapter, WorkerOutcome, WorkerRequest } from "../contract.ts";
-import { buildLaunch, injectedSettings } from "./launch.ts";
+import { buildLaunch, injectedSettings, workerHooks } from "./launch.ts";
 import type { ClaudeSubscriptionProfile } from "./profile.ts";
 import { systemSpawner, type Spawner } from "./spawn.ts";
 import { selfTestGate } from "./selftest.ts";
@@ -39,18 +39,20 @@ export class ClaudeCodeAdapter implements HarnessAdapter {
 
     const token = this.#d.readToken();
     const settingsPath = join(dir, `${req.node}-${sessionId}.settings.json`);
+    const stateFile = join(dir, `${req.node}-${sessionId}.stop-count`);
     let spec;
     try {
       spec = buildLaunch({
         kind: "worker", profile, token, hostEnv: this.#d.hostEnv, settingsPath, sessionId, cwd: req.worktree,
         skill: req.skill, prompt: req.prompt, model: req.model, effort: req.effort, feedback: req.feedback.commands,
+        ticket: req.ticket, node: req.node, run: req.run ?? sessionId, defaultBranch: req.defaultBranch ?? "main", stateFile,
         ...(req.session && { resume: req.session }),
       });
     } catch (e) {
       return failed((e as Error).message);
     }
     mkdirSync(dir, { recursive: true });
-    writeFileSync(settingsPath, injectedSettings());
+    writeFileSync(settingsPath, injectedSettings({ hooks: workerHooks(profile) }, req.feedback.commands));
 
     const scrub = (s: string) => (token ? s.split(token).join("[redacted]") : s);
     let res;

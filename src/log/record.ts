@@ -14,6 +14,9 @@ export const RECORD_KINDS = [
 ] as const;
 export type RecordKind = (typeof RECORD_KINDS)[number];
 
+/** The only kinds an agent may write; the runner writes the rest. */
+export const WORKER_KINDS: readonly RecordKind[] = ["ask-point", "pivot"];
+
 export const RESULTS = ["ok", "fail", "running", "skipped", "inconclusive", "open", "error"] as const;
 export type Result = (typeof RESULTS)[number];
 

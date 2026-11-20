@@ -140,3 +140,18 @@ test("the token is read from the named Keychain item, with a clear error when it
   assert.equal(keychainToken("abt-claude-oauth", (item) => (item === "abt-claude-oauth" ? TOKEN : undefined)), TOKEN);
   assert.throws(() => keychainToken("abt-claude-oauth", () => undefined), (e: Error) => /abt-claude-oauth/.test(e.message) && !e.message.includes(TOKEN));
 });
+
+test("a worker runs under settings with the Stop hook, the guard and its feedback commands allowed", async () => {
+  const { adapter, req, specs, profile } = setup({ stdout: init() + result() });
+  await adapter.run({ ...req, feedback: { commands: ["npm run check"] }, run: "run-7" });
+  const settingsFile = specs[0]!.args[specs[0]!.args.indexOf("--settings") + 1]!;
+  const s = JSON.parse(readFileSync(settingsFile, "utf8"));
+  assert.equal(s.hooks.Stop[0].hooks[0].command, `${profile.pluginDir}/bin/abt hook stop`);
+  assert.equal(s.hooks.PreToolUse[0].hooks[0].command, `${profile.pluginDir}/bin/abt hook pre-tool-use`);
+  assert.ok(s.permissions.allow.includes("Bash(npm run check)"));
+  const env = specs[0]!.env;
+  assert.equal(env.ABT_ROLE, "worker");
+  assert.equal(env.ABT_RUN, "run-7");
+  assert.equal(env.ABT_TICKET, "ABT-9");
+  assert.ok(env.ABT_HOOK_STATE!.startsWith(profile.runsDir));
+});
