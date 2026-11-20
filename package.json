@@ -1,0 +1,27 @@
+{
+  "name": "abt",
+  "version": "0.0.0",
+  "description": "Agent's behavior trees: the plugin, the library and the runner.",
+  "license": "MIT",
+  "type": "module",
+  "private": true,
+  "bin": {
+    "abt": "bin/abt"
+  },
+  "engines": {
+    "node": ">=24"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "build": "tsc -p tsconfig.build.json",
+    "test": "node --disable-warning=ExperimentalWarning --test \"test/**/*.test.ts\""
+  },
+  "dependencies": {
+    "ajv": "^8.20.0",
+    "yaml": "^2.9.1"
+  },
+  "devDependencies": {
+    "@types/node": "^26.6.6",
+    "typescript": "^7.0.2"
+  }
+}

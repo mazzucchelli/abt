@@ -1,0 +1,7 @@
+{
+  "name": "abt",
+  "version": "0.0.0",
+  "description": "Agent's behavior trees: the plugin, the library and the runner.",
+  "author": { "name": "Matteo Mazzucchelli" },
+  "license": "MIT"
+}
