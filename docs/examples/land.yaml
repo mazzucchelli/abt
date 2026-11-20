@@ -1,0 +1,12 @@
+# Sketch of a solo-self land tree: merge only when green and up to date, and low risk or approved.
+id: land
+fallback:
+  - check: branch-up-to-date
+  - seq:
+      - check: required-checks-green
+      - fallback:
+          - judge: "Is the risk tier low?"
+          - timeout: 2d
+            do:
+              action: escalate
+      - action: merge

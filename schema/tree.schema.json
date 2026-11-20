@@ -1,0 +1,184 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://abt.dev/schema/tree.schema.json",
+  "title": "abt behavior tree",
+  "$ref": "#/$defs/node",
+  "$defs": {
+    "id": { "type": "string", "minLength": 1 },
+    "checkName": { "enum": ["branch-up-to-date", "required-checks-green", "diff-size", "trees-valid", "feedback-check"] },
+    "text": { "type": "string", "minLength": 1 },
+    "duration": { "type": "string", "pattern": "^[0-9]+(ms|s|m|h|d)$" },
+
+    "conditionBody": {
+      "allOf": [
+        {
+          "if": { "required": ["check"] },
+          "then": {
+            "properties": { "id": { "$ref": "#/$defs/id" }, "check": { "$ref": "#/$defs/checkName" } },
+            "additionalProperties": false
+          }
+        },
+        {
+          "if": { "required": ["judge"] },
+          "then": {
+            "properties": { "id": { "$ref": "#/$defs/id" }, "judge": { "$ref": "#/$defs/text" } },
+            "additionalProperties": false
+          }
+        },
+        {
+          "if": { "required": ["all"] },
+          "then": {
+            "properties": {
+              "id": { "$ref": "#/$defs/id" },
+              "all": { "type": "array", "minItems": 1, "items": { "$ref": "#/$defs/condition" } }
+            },
+            "additionalProperties": false
+          }
+        },
+        {
+          "if": { "required": ["any"] },
+          "then": {
+            "properties": {
+              "id": { "$ref": "#/$defs/id" },
+              "any": { "type": "array", "minItems": 1, "items": { "$ref": "#/$defs/condition" } }
+            },
+            "additionalProperties": false
+          }
+        },
+        {
+          "if": { "required": ["not"] },
+          "then": {
+            "properties": { "id": { "$ref": "#/$defs/id" }, "not": { "$ref": "#/$defs/condition" } },
+            "additionalProperties": false
+          }
+        }
+      ]
+    },
+
+    "condition": {
+      "type": "object",
+      "anyOf": [
+        { "required": ["check"] },
+        { "required": ["judge"] },
+        { "required": ["all"] },
+        { "required": ["any"] },
+        { "required": ["not"] }
+      ],
+      "$ref": "#/$defs/conditionBody"
+    },
+
+    "node": {
+      "type": "object",
+      "anyOf": [
+        { "required": ["seq"] },
+        { "required": ["fallback"] },
+        { "required": ["retry"] },
+        { "required": ["timeout"] },
+        { "required": ["check"] },
+        { "required": ["judge"] },
+        { "required": ["all"] },
+        { "required": ["any"] },
+        { "required": ["not"] },
+        { "required": ["action"] },
+        { "required": ["agent"] },
+        { "required": ["use"] },
+        { "required": ["ensure"] }
+      ],
+      "allOf": [
+        { "$ref": "#/$defs/conditionBody" },
+        {
+          "if": { "required": ["seq"] },
+          "then": {
+            "properties": {
+              "id": { "$ref": "#/$defs/id" },
+              "seq": { "type": "array", "minItems": 1, "items": { "$ref": "#/$defs/node" } }
+            },
+            "additionalProperties": false
+          }
+        },
+        {
+          "if": { "required": ["fallback"] },
+          "then": {
+            "properties": {
+              "id": { "$ref": "#/$defs/id" },
+              "fallback": {
+                "type": "array",
+                "minItems": 1,
+                "prefixItems": [{ "$ref": "#/$defs/condition" }],
+                "items": { "$ref": "#/$defs/node" }
+              }
+            },
+            "additionalProperties": false
+          }
+        },
+        {
+          "if": { "required": ["retry"] },
+          "then": {
+            "required": ["do"],
+            "properties": {
+              "id": { "$ref": "#/$defs/id" },
+              "retry": { "type": "integer", "minimum": 1 },
+              "do": { "$ref": "#/$defs/node" }
+            },
+            "additionalProperties": false
+          }
+        },
+        {
+          "if": { "required": ["timeout"] },
+          "then": {
+            "required": ["do"],
+            "properties": {
+              "id": { "$ref": "#/$defs/id" },
+              "timeout": { "$ref": "#/$defs/duration" },
+              "do": { "$ref": "#/$defs/node" }
+            },
+            "additionalProperties": false
+          }
+        },
+        {
+          "if": { "required": ["action"] },
+          "then": {
+            "properties": { "id": { "$ref": "#/$defs/id" }, "action": { "$ref": "#/$defs/text" } },
+            "additionalProperties": false
+          }
+        },
+        {
+          "if": { "required": ["agent"] },
+          "then": {
+            "properties": { "id": { "$ref": "#/$defs/id" }, "agent": { "$ref": "#/$defs/text" } },
+            "additionalProperties": false
+          }
+        },
+        {
+          "if": { "required": ["use"] },
+          "then": {
+            "properties": {
+              "id": { "$ref": "#/$defs/id" },
+              "use": { "$ref": "#/$defs/text" },
+              "with": { "type": "object" }
+            },
+            "additionalProperties": false
+          }
+        },
+        {
+          "if": { "required": ["ensure"] },
+          "then": {
+            "properties": {
+              "id": { "$ref": "#/$defs/id" },
+              "ensure": {
+                "type": "object",
+                "required": ["cond", "else"],
+                "properties": {
+                  "cond": { "$ref": "#/$defs/condition" },
+                  "else": { "$ref": "#/$defs/node" }
+                },
+                "additionalProperties": false
+              }
+            },
+            "additionalProperties": false
+          }
+        }
+      ]
+    }
+  }
+}

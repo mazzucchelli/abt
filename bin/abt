@@ -1,0 +1,4 @@
+#!/bin/sh
+# Runs the TypeScript sources directly (Node >= 24 strips types natively).
+dir=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
+exec node --disable-warning=ExperimentalWarning "$dir/src/cli.ts" "$@"
