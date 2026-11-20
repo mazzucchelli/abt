@@ -54,7 +54,7 @@ test("abt log append validates the payload of each record kind", () => {
   const { abt } = setup();
   const good = abt(["log", "append", "T-1"], {
     run: "run-1", node: null, kind: "routing", decision: "route to sonnet", why: "simple grade",
-    evidence: null, result: "ok", payload: { grade: "simple", model: "sonnet", effort: "low" },
+    evidence: null, result: "ok", payload: { grade: "simple", model: "claude-sonnet-5-5", effort: "medium", min_model_from_risk: "claude-sonnet-5-5" },
   });
   assert.equal(good.status, 0, good.stderr);
   const bad = abt(["log", "append", "T-1"], {

@@ -7,7 +7,7 @@ import type { DecisionLog } from "./log/store.ts";
 import { parseTree, type TreeNode } from "./tree.ts";
 import type { TreeStore } from "./trees.ts";
 import { DEFAULT_SCRIPT_TIMEOUT_MS, runScript } from "./script.ts";
-import { gradeFor, PROFILES } from "./routing.ts";
+import { routeWorker, type RoutingDeps } from "./routing.ts";
 import type { Ticket, Tracker } from "./tracker/contract.ts";
 import { branchName } from "./workspace/branch.ts";
 import type { Workspace } from "./workspace/contract.ts";
@@ -35,6 +35,8 @@ export interface PassDeps {
   judge?: Judge;
   /** Whether a finished research ticket may skip the human's ack (the project's `review=auto`). Off unless the project turns it on. */
   reviewAuto?: boolean;
+  /** Complexity routing: the grade judge, the risk map, thresholds and the pinned model IDs. Without it rule floors alone grade a ticket. */
+  routing?: RoutingDeps;
 }
 
 export interface PassResult {
@@ -67,6 +69,8 @@ class Pass {
   readonly #d: PassDeps;
   readonly #run: string;
   readonly #history: DecisionRecord[];
+  /** Set when a worker was refused because every level had failed twice: no retry may try again. */
+  #exhausted = false;
 
   constructor(deps: PassDeps, run: string, history: DecisionRecord[]) {
     this.#d = deps;
@@ -134,6 +138,10 @@ class Pass {
       return "fail";
     }
     const r = await this.evaluate(child);
+    if (r === "fail" && this.#exhausted) {
+      this.#record(node, `retry ${node.max}`, { result: "fail", why: `${child.id} failed at every level; no attempts left` });
+      return "fail";
+    }
     if (r === "error") {
       // An infrastructure error is the child's record to keep; it uses up no attempt, so try again next pass.
       this.#record(node, `retry ${node.max}`, { result: "running", why: `${child.id} error, not counted; trying again next pass` });
@@ -277,18 +285,33 @@ class Pass {
     if (!worktree) return { result: "fail", why: "claim before work: the ticket has no worktree" };
 
     const session = this.#runningWorker(node.id);
-    const { grade, why: gradeWhy } = gradeFor(t);
-    const { model, effort } = PROFILES[grade];
-    if (!session) {
+    let model: string;
+    let effort: string;
+    if (session) {
+      // Polling a worker that is already running: it keeps the model and effort it was launched with.
+      const launched = this.#history.findLast((r) => r.kind === "routing")?.payload;
+      const route = typeof launched?.model === "string" && typeof launched.effort === "string" ? undefined : await routeWorker(this.#d.routing ?? {}, { ticket: t, records: this.#d.log.read(ticket) });
+      model = route?.model ?? String(launched!.model);
+      effort = route?.effort ?? String(launched!.effort);
+    } else {
+      const route = await routeWorker(this.#d.routing ?? {}, { ticket: t, records: this.#d.log.read(ticket) });
+      if (route.exhausted) {
+        this.#exhausted = true;
+        return { result: "fail", why: `no worker launched: ${route.why}` };
+      }
+      ({ model, effort } = route);
       this.#d.log.append(ticket, {
         run: this.#run,
         node: node.id,
         kind: "routing",
-        decision: `route ${grade} to ${model} at ${effort}`,
-        why: gradeWhy,
+        decision: `route ${route.grade} to ${model} at ${effort}`,
+        why: route.why,
         evidence: null,
         result: "ok",
-        payload: { grade, model, effort },
+        payload: {
+          grade: route.grade, model, effort, min_model_from_risk: route.minModelFromRisk, base: route.base,
+          ...(route.judged && { judged: route.judged }), steps: route.steps, source: route.source,
+        },
       });
     }
     const out = await harness.run({

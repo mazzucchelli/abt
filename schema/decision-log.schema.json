@@ -84,11 +84,16 @@
       "then": {
         "properties": {
           "payload": {
-            "required": ["grade", "model", "effort"],
+            "required": ["grade", "model", "effort", "min_model_from_risk"],
             "properties": {
               "grade": { "enum": ["simple", "standard", "hard"] },
               "model": { "type": "string", "minLength": 1 },
-              "effort": { "type": "string", "minLength": 1 }
+              "effort": { "type": "string", "minLength": 1 },
+              "min_model_from_risk": { "type": "string", "minLength": 1 },
+              "base": { "enum": ["simple", "standard", "hard"] },
+              "judged": { "enum": ["simple", "standard", "hard"] },
+              "steps": { "type": "integer", "minimum": 0 },
+              "source": { "enum": ["rules", "judge", "risk", "step-up", "override"] }
             },
             "additionalProperties": false
           }
