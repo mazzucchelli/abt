@@ -114,3 +114,32 @@ test("abt log show fails for a ticket with no log", () => {
   assert.notEqual(r.status, 0);
   assert.match(r.stderr, /T-9/);
 });
+
+test("a worker may append ask-point and pivot records only", () => {
+  const { abt, file } = setup();
+  const worker = (args: string[], input: unknown) => {
+    const home = file("X").replace(/\/log\/X\.jsonl$/, "");
+    return spawnSync("bin/abt", args, {
+      encoding: "utf8",
+      input: JSON.stringify(input),
+      env: { ...process.env, ABT_HOME: home, ABT_ROLE: "worker", ABT_TICKET: "T-1" },
+    });
+  };
+  const ask = nodeOutcome({
+    kind: "ask-point", decision: "which db", result: "ok",
+    payload: { question: "q", recommended: "r", reversible: true, handling: "decided" },
+  });
+  assert.equal(worker(["log", "append", "T-1"], ask).status, 0);
+  const pivot = nodeOutcome({ kind: "pivot", decision: "switch", result: "ok", payload: { from: "a", to: "b", trigger: "t" } });
+  assert.equal(worker(["log", "append", "T-1"], pivot).status, 0);
+
+  const refused = worker(["log", "append", "T-1"], nodeOutcome());
+  assert.equal(refused.status, 1);
+  assert.match(refused.stderr, /workers may only write ask-point and pivot/);
+  assert.equal(readFileSync(file("T-1"), "utf8").trim().split("\n").length, 2);
+
+  const other = worker(["log", "append", "T-2"], ask);
+  assert.equal(other.status, 1);
+  assert.match(other.stderr, /T-1/);
+  assert.equal(abt(["log", "append", "T-3"], nodeOutcome()).status, 0, "without the worker role any kind is accepted");
+});

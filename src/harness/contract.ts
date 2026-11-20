@@ -15,6 +15,10 @@ export interface WorkerRequest {
   feedback: FeedbackConfig;
   ticket: string;
   node: string;
+  /** The pass this worker was dispatched in; its hooks stamp their decision records with it. */
+  run?: string;
+  /** The branch a worker must never write to. `main` when absent. */
+  defaultBranch?: string;
   /** Set when the decision log says a worker for this node was still running: poll it, don't dispatch. */
   session?: string;
 }

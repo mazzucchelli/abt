@@ -8,8 +8,9 @@ import { runPass } from "./pass.ts";
 import { TreeError } from "./tree.ts";
 import { renderRun } from "./log/show.ts";
 import { abtHome, DecisionLog, LogError } from "./log/store.ts";
-import type { RecordInput } from "./log/record.ts";
+import { WORKER_KINDS, type RecordInput, type RecordKind } from "./log/record.ts";
 import { DirTrees, LayeredTrees } from "./trees.ts";
+import { hookCommand } from "./harness/claude/hooks.ts";
 import { runnerCommand } from "./runner/cli.ts";
 import { validateWithUses } from "./validate.ts";
 
@@ -52,6 +53,8 @@ async function main(argv: string[]): Promise<number> {
 
   if (command === "log") return logCommand(rest);
 
+  if (command === "hook") return hookCommand(rest[0], readFileSync(0, "utf8"), process.env, (s) => console.log(s));
+
   if (command === "runner") return runnerCommand(rest);
 
   if (command && STUBS.includes(command)) {
@@ -63,12 +66,27 @@ async function main(argv: string[]): Promise<number> {
   return 2;
 }
 
+/** A worker (ABT_ROLE=worker) may write only its own ticket's ask-point and pivot records. */
+function workerLogViolation(env: NodeJS.ProcessEnv, ticket: string, input: RecordInput): string | undefined {
+  if (env.ABT_ROLE !== "worker") return undefined;
+  if (!WORKER_KINDS.includes(input?.kind as RecordKind)) {
+    return `workers may only write ask-point and pivot records, not ${JSON.stringify(input?.kind)}`;
+  }
+  if (env.ABT_TICKET && env.ABT_TICKET !== ticket) return `workers may only write to their own ticket's log (${env.ABT_TICKET}), not ${ticket}`;
+  return undefined;
+}
+
 function logCommand(args: string[]): number {
   const [sub, ticket, ...flags] = args;
   const log = new DecisionLog(abtHome(), systemClock, randomUUID);
   try {
     if (sub === "append" && ticket) {
       const input = JSON.parse(readFileSync(0, "utf8")) as RecordInput;
+      const denied = workerLogViolation(process.env, ticket, input);
+      if (denied) {
+        console.error(`abt: ${denied}`);
+        return 1;
+      }
       console.log(log.append(ticket, input).id);
       return 0;
     }
