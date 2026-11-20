@@ -4,6 +4,8 @@ import type { FeedbackConfig, HarnessAdapter } from "./harness/contract.ts";
 import type { DecisionRecord, Result } from "./log/record.ts";
 import type { DecisionLog } from "./log/store.ts";
 import { parseTree, type TreeNode } from "./tree.ts";
+import type { TreeStore } from "./trees.ts";
+import { DEFAULT_SCRIPT_TIMEOUT_MS, runScript } from "./script.ts";
 import { gradeFor, PROFILES } from "./routing.ts";
 import type { Ticket, Tracker } from "./tracker/contract.ts";
 import { branchName } from "./workspace/branch.ts";
@@ -23,6 +25,10 @@ export interface PassDeps {
   run?: string;
   /** Where the tree came from, for diagnostics. */
   file?: string;
+  /** Where check scripts run from (default: the ticket's worktree) and how long one may take. */
+  scripts?: { dir?: string; timeoutMs?: number };
+  /** Where `use:` finds its subtrees. */
+  trees?: TreeStore;
   feedback?: FeedbackConfig;
 }
 
@@ -44,7 +50,7 @@ interface Outcome {
  * tree, the world's facts and the ticket's decision-log history.
  */
 export async function runPass(deps: PassDeps): Promise<PassResult> {
-  const root = parseTree(deps.tree, deps.file);
+  const root = await parseTree(deps.tree, deps.file, deps.trees);
   const run = deps.run ?? deps.newId();
   const history = deps.log.read(deps.ticket);
   const result = await new Pass(deps, run, history).evaluate(root);
@@ -70,11 +76,26 @@ class Pass {
   }
 
   async #composite(node: TreeNode & { children: TreeNode[] }): Promise<Result> {
-    let result: Result = node.kind === "seq" ? "ok" : "fail";
-    let why = node.kind === "seq" ? "every child succeeded" : "every child failed";
+    switch (node.kind) {
+      case "not":
+        return this.#not(node);
+      case "retry":
+        return this.#retry(node);
+      case "timeout":
+        return this.#timeout(node);
+      default:
+        return this.#sequence(node);
+    }
+  }
+
+  /** seq and all stop at the first child that is not ok; fallback and any at the first that is not fail. */
+  async #sequence(node: TreeNode & { children: TreeNode[] }): Promise<Result> {
+    const all = node.kind === "seq" || node.kind === "all";
+    let result: Result = all ? "ok" : "fail";
+    let why = all ? "every child succeeded" : "every child failed";
     for (const [i, child] of node.children.entries()) {
       const r = await this.evaluate(child);
-      const stops = node.kind === "seq" ? r !== "ok" : r !== "fail";
+      const stops = all ? r !== "ok" : r !== "fail";
       if (!stops) continue;
       result = r;
       why = `${child.id} ${r}`;
@@ -83,6 +104,78 @@ class Pass {
     }
     this.#record(node, node.kind, { result, why });
     return result;
+  }
+
+  /** Inverts ok and fail; anything else (inconclusive, error, running) passes through. */
+  async #not(node: TreeNode & { children: TreeNode[] }): Promise<Result> {
+    const r = await this.evaluate(node.children[0]!);
+    const result: Result = r === "ok" ? "fail" : r === "fail" ? "ok" : r;
+    this.#record(node, node.kind, { result, why: `${node.children[0]!.id} ${r}` });
+    return result;
+  }
+
+  /**
+   * `retry: N` counts the child's `fail` outcomes in the log since the node's last `ok` or the last
+   * human override. Until the Nth fail it reports `running` (try again next pass); an `error` is
+   * logged by the child, never counted, and also reports `running`.
+   */
+  async #retry(node: TreeNode & { kind: "retry"; max: number }): Promise<Result> {
+    const child = node.children[0]!;
+    const used = this.#sinceReset(node).filter((r) => r.node === child.id && r.result === "fail").length;
+    if (used >= node.max) {
+      this.#skip(child, `${node.id} used up its ${node.max} retries`);
+      this.#record(node, `retry ${node.max}`, { result: "fail", why: `${used} of ${node.max} attempts failed` });
+      return "fail";
+    }
+    const r = await this.evaluate(child);
+    if (r === "error") {
+      // An infrastructure error is the child's record to keep; it uses up no attempt, so try again next pass.
+      this.#record(node, `retry ${node.max}`, { result: "running", why: `${child.id} error, not counted; trying again next pass` });
+      return "running";
+    }
+    if (r !== "fail") {
+      this.#record(node, `retry ${node.max}`, { result: r, why: `${child.id} ${r}` });
+      return r;
+    }
+    const exhausted = used + 1 >= node.max;
+    const result: Result = exhausted ? "fail" : "running";
+    this.#record(node, `retry ${node.max}`, {
+      result,
+      why: `attempt ${used + 1} of ${node.max} failed${exhausted ? "" : "; trying again next pass"}`,
+    });
+    return result;
+  }
+
+  /** The live (not superseded) decision-log records after the node's last `ok` or the last human override of it or a node under it. */
+  #sinceReset(node: TreeNode): DecisionRecord[] {
+    const ids = new Set<string>();
+    const collect = (n: TreeNode) => {
+      ids.add(n.id);
+      if ("children" in n) n.children.forEach(collect);
+    };
+    collect(node);
+    const superseded = new Set(this.#history.flatMap((r) => (r.supersedes ? [r.supersedes] : [])));
+    const live = this.#history.filter((r) => !superseded.has(r.id));
+    const reset = live.findLastIndex(
+      (r) =>
+        (r.kind === "node-outcome" && r.node === node.id && r.result === "ok") ||
+        (r.kind === "override" && r.payload.by !== "runner" && typeof r.payload.target === "string" && ids.has(r.payload.target)),
+    );
+    return live.slice(reset + 1);
+  }
+
+  /** `timeout: D` runs from the node's first `running` record; once more than D has passed it fails without running the child. */
+  async #timeout(node: TreeNode & { kind: "timeout"; duration: string; ms: number }): Promise<Result> {
+    const child = node.children[0]!;
+    const first = this.#sinceReset(node).find((r) => r.kind === "node-outcome" && r.node === node.id && r.result === "running");
+    if (first && this.#d.log.now().getTime() - new Date(first.timestamp).getTime() > node.ms) {
+      this.#skip(child, `${node.id} timed out`);
+      this.#record(node, `timeout ${node.duration}`, { result: "fail", why: `still running ${node.duration} after ${first.timestamp}` });
+      return "fail";
+    }
+    const r = await this.evaluate(child);
+    this.#record(node, `timeout ${node.duration}`, { result: r, why: `${child.id} ${r}` });
+    return r;
   }
 
   #skip(node: TreeNode, why: string): void {
@@ -98,6 +191,12 @@ class Pass {
       const verdict = node.name === "pr-exists" ? facts.pr !== undefined : facts.checks[node.name as CheckName];
       if (verdict === undefined) return { result: "inconclusive", why: `no fact for ${node.name}` };
       return { result: verdict ? "ok" : "fail", why: verdict ? `${node.name} holds` : `${node.name} does not hold` };
+    }
+
+    if (node.kind === "script") {
+      const dir = this.#d.scripts?.dir ?? (await workspace.find(ticket));
+      if (!dir) return { result: "error", why: `script "${node.name}": the ticket has no worktree to run it in` };
+      return runScript(dir, node.name, this.#d.scripts?.timeoutMs ?? DEFAULT_SCRIPT_TIMEOUT_MS);
     }
 
     if (node.kind === "agent") return this.#worker(node);

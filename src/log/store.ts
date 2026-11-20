@@ -28,6 +28,11 @@ export class DecisionLog {
     this.#newId = newId;
   }
 
+  /** The log's clock, so durations are measured on the same time the records are stamped with. */
+  now(): Date {
+    return this.#clock.now();
+  }
+
   path(ticket: string): string {
     if (!/^[A-Za-z0-9._-]+$/.test(ticket)) throw new LogError(`invalid ticket id ${JSON.stringify(ticket)}`);
     return join(this.#home, "log", `${ticket}.jsonl`);

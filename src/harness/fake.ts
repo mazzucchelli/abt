@@ -1,7 +1,7 @@
 import type { HarnessAdapter, WorkerOutcome, WorkerRequest } from "./contract.ts";
 
 export interface ScriptedOutcome {
-  result: "ok" | "fail" | "running";
+  result: "ok" | "fail" | "running" | "error";
   why?: string;
 }
 
@@ -23,7 +23,7 @@ export class FakeHarness implements HarnessAdapter {
     const sessionId = req.session ?? `session-${++this.#next}`;
     return {
       result: outcome.result,
-      exitStatus: outcome.result === "running" ? null : outcome.result === "ok" ? 0 : 1,
+      exitStatus: outcome.result === "running" || outcome.result === "error" ? null : outcome.result === "ok" ? 0 : 1,
       sessionId,
       transcriptPath: `${req.worktree}/.transcripts/${sessionId}.jsonl`,
       why: outcome.why ?? `worker ${outcome.result}`,

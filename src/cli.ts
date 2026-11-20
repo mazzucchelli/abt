@@ -1,4 +1,6 @@
 import { readFileSync } from "node:fs";
+import { dirname } from "node:path";
+import { fileURLToPath } from "node:url";
 import { randomUUID } from "node:crypto";
 import { systemClock } from "./clock.ts";
 import { loadFakeWorld } from "./fake-world.ts";
@@ -7,7 +9,8 @@ import { TreeError } from "./tree.ts";
 import { renderRun } from "./log/show.ts";
 import { abtHome, DecisionLog, LogError } from "./log/store.ts";
 import type { RecordInput } from "./log/record.ts";
-import { validate } from "./validate.ts";
+import { DirTrees, LayeredTrees } from "./trees.ts";
+import { validateWithUses } from "./validate.ts";
 
 const STUBS = ["onboard", "upgrade"];
 const USAGE = `usage: abt <command>
@@ -36,7 +39,9 @@ async function main(argv: string[]): Promise<number> {
       console.error(`abt: cannot read ${file}: ${(e as NodeJS.ErrnoException).code ?? e}`);
       return 2;
     }
-    const diagnostics = validate(source, file);
+    // `use:` names resolve next to the file first, then in the plugin's default trees.
+    const trees = new LayeredTrees(new DirTrees(dirname(file)), new DirTrees(fileURLToPath(new URL("../defaults/trees/", import.meta.url))));
+    const diagnostics = await validateWithUses(source, file, trees);
     for (const d of diagnostics) console.error(d.message);
     return diagnostics.length === 0 ? 0 : 1;
   }
@@ -103,7 +108,7 @@ async function runCommand(args: string[]): Promise<number> {
     await world.tracker.readTicket(ticket);
     const newId = randomUUID;
     const log = new DecisionLog(abtHome(), world.clock, newId);
-    const { run, result } = await runPass({ tree, ticket, tracker: world.tracker, codeHost: world.codeHost, harness: world.harness, workspace: world.workspace, log, newId });
+    const { run, result } = await runPass({ tree, ticket, tracker: world.tracker, codeHost: world.codeHost, harness: world.harness, workspace: world.workspace, log, newId, trees: new LayeredTrees(new DirTrees(dirname(treeFile)), new DirTrees(fileURLToPath(new URL("../defaults/trees/", import.meta.url)))) });
     console.log(renderRun(log.read(ticket), run));
     console.log(`pass ${run}: ${result}`);
     return result === "ok" || result === "running" || result === "open" ? 0 : 1;

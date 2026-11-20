@@ -1,6 +1,7 @@
 import { readFileSync } from "node:fs";
 import { Ajv2020, type ErrorObject } from "ajv/dist/2020.js";
-import { LineCounter, isNode, parseDocument, type Document } from "yaml";
+import { LineCounter, isNode, isScalar, parseDocument, visit, type Document } from "yaml";
+import type { TreeStore } from "./trees.ts";
 
 const schema = JSON.parse(
   readFileSync(new URL("../schema/tree.schema.json", import.meta.url), "utf8"),
@@ -17,7 +18,7 @@ export interface Diagnostic {
   message: string;
 }
 
-const CONDITION_KEYS = ["check", "judge", "all", "any", "not"];
+const CONDITION_KEYS = ["check", "judge", "script", "all", "any", "not"];
 const NODE_KEYS = [...CONDITION_KEYS, "seq", "fallback", "retry", "timeout", "action", "agent", "use", "ensure"];
 
 /** Validate behavior-tree YAML against the JSON Schema. Empty result means valid. */
@@ -122,7 +123,7 @@ function describe(
     if (bad) {
       return {
         offset: here,
-        text: `"${bad}" is not a condition (expected check, judge, all, any or not)`,
+        text: `"${bad}" is not a condition (expected check, judge, script, all, any or not)`,
       };
     }
     return { offset: here, text: `unknown node${keys[0] ? ` "${keys[0]}"` : ""}` };
@@ -163,4 +164,41 @@ function distance(a: string, b: string): number {
     }
   }
   return row[b.length]!;
+}
+
+/**
+ * `validate`, plus: every `use:` must name a tree `trees` can read, followed through the
+ * subtrees themselves. A subtree is only checked for its own `use:`s here, because its
+ * `${param}` placeholders are not valid until `with:` fills them in at run time.
+ */
+export async function validateWithUses(source: string, file: string, trees: TreeStore): Promise<Diagnostic[]> {
+  const diagnostics = validate(source, file);
+  if (diagnostics.length > 0) return diagnostics;
+  const seen = new Set<string>();
+  const queue = [{ source, file }];
+  while (queue.length > 0) {
+    const from = queue.shift()!;
+    const lines = new LineCounter();
+    const doc = parseDocument(from.source, { lineCounter: lines });
+    const uses: { name: string; offset: number }[] = [];
+    visit(doc, {
+      Pair(_, pair) {
+        if (isScalar(pair.key) && pair.key.value === "use" && isScalar(pair.value) && typeof pair.value.value === "string" && pair.value.range) {
+          uses.push({ name: pair.value.value, offset: pair.value.range[0] });
+        }
+      },
+    });
+    for (const { name, offset } of uses) {
+      const found = await trees.read(name);
+      if (!found) {
+        const { line, col } = lines.linePos(offset);
+        const text = `use "${name}": no tree named "${name}"`;
+        diagnostics.push({ file: from.file, line, col, text, message: `${from.file}:${line}:${col} ${text}` });
+      } else if (!seen.has(name)) {
+        seen.add(name);
+        queue.push(found);
+      }
+    }
+  }
+  return diagnostics;
 }

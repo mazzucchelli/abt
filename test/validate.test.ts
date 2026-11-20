@@ -53,22 +53,22 @@ ensure:
     action: run-tests
 `;
   assert.deepEqual(messages(source), [
-    'tree.yaml:4:5 "action" is not a condition (expected check, judge, all, any or not)',
+    'tree.yaml:4:5 "action" is not a condition (expected check, judge, script, all, any or not)',
   ]);
 });
 
 test("rejects a non-condition nested inside all/any/not", () => {
   assert.deepEqual(messages("all:\n  - check: branch-up-to-date\n  - agent: hi\n"), [
-    'tree.yaml:3:5 "agent" is not a condition (expected check, judge, all, any or not)',
+    'tree.yaml:3:5 "agent" is not a condition (expected check, judge, script, all, any or not)',
   ]);
   assert.deepEqual(messages("not:\n  action: x\n"), [
-    'tree.yaml:2:3 "action" is not a condition (expected check, judge, all, any or not)',
+    'tree.yaml:2:3 "action" is not a condition (expected check, judge, script, all, any or not)',
   ]);
 });
 
 test("rejects a non-condition as the guard of a fallback", () => {
   assert.deepEqual(messages("fallback:\n  - action: x\n  - check: trees-valid\n"), [
-    'tree.yaml:2:5 "action" is not a condition (expected check, judge, all, any or not)',
+    'tree.yaml:2:5 "action" is not a condition (expected check, judge, script, all, any or not)',
   ]);
 });
 
