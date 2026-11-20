@@ -1,8 +1,9 @@
-import type { HarnessAdapter, WorkerOutcome, WorkerRequest } from "./contract.ts";
+import type { HarnessAdapter, UsageLimit, WorkerOutcome, WorkerRequest } from "./contract.ts";
 
 export interface ScriptedOutcome {
   result: "ok" | "fail" | "running" | "error";
   why?: string;
+  usageLimit?: UsageLimit;
 }
 
 /** Returns scripted outcomes per skill, in order. The last one repeats. Keeps every request it saw. */
@@ -15,9 +16,14 @@ export class FakeHarness implements HarnessAdapter {
     this.#scripts.set(skill, outcomes);
   }
 
+  /** Outcomes for one ticket's worker; they win over the skill's script. */
+  scriptTicket(ticket: string, ...outcomes: ScriptedOutcome[]): void {
+    this.#scripts.set(`ticket:${ticket}`, outcomes);
+  }
+
   async run(req: WorkerRequest): Promise<WorkerOutcome> {
     this.requests.push(req);
-    const script = this.#scripts.get(req.skill);
+    const script = this.#scripts.get(`ticket:${req.ticket}`) ?? this.#scripts.get(req.skill);
     if (!script || script.length === 0) throw new Error(`no scripted outcome for skill ${req.skill}`);
     const outcome = script.length > 1 ? script.shift()! : script[0]!;
     const sessionId = req.session ?? `session-${++this.#next}`;
@@ -27,6 +33,7 @@ export class FakeHarness implements HarnessAdapter {
       sessionId,
       transcriptPath: `${req.worktree}/.transcripts/${sessionId}.jsonl`,
       why: outcome.why ?? `worker ${outcome.result}`,
+      ...(outcome.usageLimit && { usageLimit: outcome.usageLimit }),
     };
   }
 }

@@ -65,6 +65,9 @@ export class InMemoryTracker implements Tracker {
       abt: true,
       claimed: false,
       links: [],
+      priority: input.priority ?? 0,
+      createdAt: new Date(Date.UTC(2026, 0, 1) + this.#seq * 1000).toISOString(),
+      blockedBy: [...(input.blockedBy ?? [])],
       ...(input.workType && { workType: input.workType }),
       ...(input.risk && { risk: input.risk }),
     };

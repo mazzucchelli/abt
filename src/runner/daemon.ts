@@ -3,8 +3,13 @@ import type { Clock, Timers } from "../clock.ts";
 import type { DecisionLog } from "../log/store.ts";
 import type { Tracker } from "../tracker/contract.ts";
 import { runTicket, type TicketRunDeps } from "../ticket-run.ts";
+import type { Ticket } from "../tracker/contract.ts";
 import { DispatchStore } from "./dispatch-store.ts";
 import { RunnerLock, runnerStatus, type RunnerStatus } from "./lock.ts";
+import {
+  DEFAULT_GLOBAL_CAP, DEFAULT_WALL_CLOCK_MINUTES, admit, orderCandidates, ticketFacts,
+  type Candidate, type SchedulingConfig, type TicketFacts,
+} from "./scheduler.ts";
 import { listenForNudges } from "./socket.ts";
 import type { Workers } from "./workers.ts";
 
@@ -21,6 +26,10 @@ export interface RunnerProject {
   log: DecisionLog;
   /** Everything a run of one ticket needs. */
   deps(ticket: string): TicketRunDeps;
+  /** Optional cap on this project's running workers, below the global cap. */
+  maxWorkers?: number;
+  /** The launch profile its workers run under; a usage limit pauses dispatch per profile. */
+  profile?: string;
 }
 
 export interface RunnerDeps {
@@ -34,21 +43,36 @@ export interface RunnerDeps {
   workers: Workers;
   newId: () => string;
   store: DispatchStore;
+  /** Slot cap and wall-clock caps. Defaults: 3 slots; 45, 90 and 180 minutes by grade. */
+  scheduling?: SchedulingConfig;
   /** Where the nudge socket listens. Omit for no socket. */
   socketPath?: string;
   onError?: (error: unknown, where: string) => void;
 }
 
+/** poll: waiting tickets and in-flight trees. scan: also new Todo tickets. event: a pass ended or a nudge came; no waiting-ticket passes. */
+type Tick = "poll" | "scan" | "event";
+
 /**
  * The runner daemon. The tracker is the queue, so nothing here is authoritative: a pass is
  * triggered by a worker exit, a socket nudge, the 60 s poll or the 5 min scan, and each trigger
  * just runs the ticket's tree again from the facts.
+ *
+ * Whatever needs a worker slot goes through the scheduler: at most the global cap of workers run
+ * at once (and at most a project's own cap), in the order usage-limit requeues, in-flight trees,
+ * new tickets by priority then age. Which tickets hold a slot is read from the decision log, so a
+ * restart has nothing to forget.
  */
 export class Runner {
   readonly #d: RunnerDeps;
   readonly #lock: RunnerLock;
   readonly #inflight = new Map<string, { rerun: boolean }>();
   readonly #passes = new Set<Promise<void>>();
+  /** Keys given a slot whose pass has not ended: their worker may not be in the log yet. */
+  readonly #admitted = new Set<string>();
+  /** Keys whose last pass ended since the last poll, scan or nudge: pass-end ticks leave them for the next poll. */
+  readonly #cooling = new Set<string>();
+  #ticks: Promise<void> = Promise.resolve();
   #stops: (() => void)[] = [];
   #server: Server | undefined;
 
@@ -100,17 +124,23 @@ export class Runner {
 
   /** Asks for a pass on a ticket now. False if no project has it. A nudge during a pass queues one more pass. */
   async nudge(ticket: string): Promise<boolean> {
-    const project = await this.#owner(ticket);
-    if (!project) return false;
-    this.#trigger(project, ticket, true);
+    const owner = await this.#owner(ticket);
+    if (!owner) return false;
+    const key = `${owner.project.name}:${ticket}`;
+    const waiting = owner.ticket.state === "In review" || ticketFacts(owner.project.log.read(ticket)).running;
+    if (waiting || this.#inflight.has(key)) this.#trigger(owner.project, ticket, true);
+    else {
+      // It needs a slot, so it goes through the scheduler rather than straight to a worker.
+      this.#cooling.delete(key);
+      this.#track(this.#tick("event"), "dispatch");
+    }
     return true;
   }
 
-  async #owner(ticket: string): Promise<RunnerProject | undefined> {
+  async #owner(ticket: string): Promise<{ project: RunnerProject; ticket: Ticket } | undefined> {
     for (const project of this.#d.projects) {
       try {
-        await project.tracker.readTicket(ticket);
-        return project;
+        return { project, ticket: await project.tracker.readTicket(ticket) };
       } catch {
         // Not this project's ticket.
       }
@@ -118,25 +148,126 @@ export class Runner {
     return undefined;
   }
 
-  /** Waiting tickets: a worker is running, or a PR is waiting on CI or an approval. */
-  async #poll(): Promise<void> {
-    for (const project of this.#d.projects) {
-      for (const state of ["In progress", "In review"] as const) {
-        for (const t of await project.tracker.listByState(state)) {
-          if (t.claimed && !this.#inflight.has(`${project.name}:${t.id}`)) {
-            this.#d.store.set(`${project.name}:${t.id}`, { status: "claimed", since: this.#d.clock.now().toISOString() });
-          }
-          this.#trigger(project, t.id, false);
-        }
-      }
-    }
+  /** Waiting tickets and in-flight trees. */
+  #poll(): Promise<void> {
+    return this.#tick("poll");
   }
 
   /** New work: abt-marked Todo tickets enqueued while the runner was busy or down. */
-  async #scan(): Promise<void> {
+  #scan(): Promise<void> {
+    return this.#tick("scan");
+  }
+
+  #tick(mode: Tick): Promise<void> {
+    const run = this.#ticks.then(() => this.#dispatch(mode));
+    this.#ticks = run.catch(() => undefined);
+    return run;
+  }
+
+  /**
+   * One scheduling round: read the facts, free the slots of workers that marked themselves
+   * blocked, kill workers past their wall-clock cap, then give the free slots to the waiting
+   * tickets in dispatch order. Waiting tickets (CI, an approval) are only re-run on a poll.
+   */
+  async #dispatch(mode: Tick): Promise<void> {
+    if (mode !== "event") this.#cooling.clear();
+    const now = this.#d.clock.now();
+    const held = new Map<string, string>();
+    // Usage-limit pauses are read from the log every round, so a restart keeps honouring them.
+    const pausedUntil = new Map<string, number>();
+    const cands: Candidate[] = [];
+    const where = new Map<string, { project: RunnerProject; id: string }>();
+    for (const key of this.#admitted) held.set(key, key.slice(0, key.indexOf(":")));
+
     for (const project of this.#d.projects) {
-      for (const t of await project.tracker.listByState("Todo")) this.#trigger(project, t.id, false);
+      const add = (t: Ticket, queue: Candidate["queue"]) =>
+        {
+          const key = `${project.name}:${t.id}`;
+          where.set(key, { project, id: t.id });
+          cands.push({ key, project: project.name, queue, priority: t.priority, createdAt: t.createdAt });
+        };
+
+      for (const t of await project.tracker.listByState("In progress")) {
+        const key = `${project.name}:${t.id}`;
+        if (t.claimed && !this.#inflight.has(key)) this.#d.store.set(key, { status: "claimed", since: now.toISOString() });
+        let facts = ticketFacts(project.log.read(t.id));
+        if (facts.pausedUntil !== undefined) {
+          const profile = project.profile ?? "default";
+          pausedUntil.set(profile, Math.max(pausedUntil.get(profile) ?? 0, facts.pausedUntil));
+        }
+        // A pass still running for the ticket would log over the stop; leave it to the next round.
+        const stoppable = !this.#inflight.has(key);
+        if (stoppable && facts.blockedAfterWorker) {
+          await this.#stopWorker(project, t.id, facts, "error", "the worker marked the ticket blocked; its slot is released until the blockers merge");
+          facts = ticketFacts(project.log.read(t.id));
+        }
+        if (stoppable && facts.running && this.#pastCap(facts, now)) {
+          const cap = this.#capMinutes(facts);
+          await this.#stopWorker(project, t.id, facts, "fail", `worker ran past its ${cap} minute wall-clock cap (${facts.grade}) and was killed`);
+          facts = ticketFacts(project.log.read(t.id));
+        }
+        if (facts.running) {
+          held.set(key, project.name);
+          if (mode === "poll") this.#trigger(project, t.id, false);
+          continue;
+        }
+        if (this.#inflight.has(key) || this.#cooling.has(key)) continue;
+        if ((await this.#unmet(project, t, facts)).length > 0) continue;
+        add(t, facts.usageLimited ? "usage-limit" : "in-flight");
+      }
+
+      for (const t of await project.tracker.listByState("In review")) {
+        // Any worker running for a ticket in review still holds a slot.
+        if (ticketFacts(project.log.read(t.id)).running) held.set(`${project.name}:${t.id}`, project.name);
+        if (mode === "poll") this.#trigger(project, t.id, false);
+      }
+      if (mode !== "poll") {
+        for (const t of await project.tracker.listByState("Todo")) {
+          const key = `${project.name}:${t.id}`;
+          if (this.#inflight.has(key) || this.#cooling.has(key)) continue;
+          if ((await this.#unmet(project, t, ticketFacts(project.log.read(t.id)))).length > 0) continue;
+          add(t, "new");
+        }
+      }
     }
+
+    const profileOf = (c: Candidate) => this.#d.projects.find((p) => p.name === c.project)?.profile ?? "default";
+    const open = cands.filter((c) => (pausedUntil.get(profileOf(c)) ?? 0) <= now.getTime());
+    const projectCaps = Object.fromEntries(this.#d.projects.map((p) => [p.name, p.maxWorkers]));
+    const go = admit(orderCandidates(open), { held: [...held.values()], globalCap: this.#d.scheduling?.globalCap ?? DEFAULT_GLOBAL_CAP, projectCaps });
+    for (const c of go) {
+      const w = where.get(c.key)!;
+      this.#admitted.add(c.key);
+      this.#trigger(w.project, w.id, false);
+    }
+  }
+
+  /** Blockers that have not merged (their ticket is not Done), from the tracker and from what a worker reported mid-run. */
+  async #unmet(project: RunnerProject, t: Ticket, facts: TicketFacts): Promise<string[]> {
+    const unmet: string[] = [];
+    for (const id of new Set([...t.blockedBy, ...facts.blockedBy])) {
+      // A blocker may live in another served project; one no project knows counts as unmerged.
+      const owner = (await project.tracker.readTicket(id).catch(() => undefined)) ?? (await this.#owner(id))?.ticket;
+      if (owner?.state !== "Done") unmet.push(id);
+    }
+    return unmet;
+  }
+
+  #capMinutes(facts: TicketFacts): number {
+    return this.#d.scheduling?.wallClockMinutes?.[facts.grade] ?? DEFAULT_WALL_CLOCK_MINUTES[facts.grade];
+  }
+
+  #pastCap(facts: TicketFacts, now: Date): boolean {
+    return facts.runningSince !== undefined && now.getTime() - new Date(facts.runningSince).getTime() > this.#capMinutes(facts) * 60_000;
+  }
+
+  /** Ends a ticket's running worker and says so in its log. A `fail` counts toward the retry, an `error` does not. */
+  async #stopWorker(project: RunnerProject, ticket: string, facts: TicketFacts, result: "fail" | "error", why: string): Promise<void> {
+    for (const w of await this.#d.workers.list()) if (w.ticket === ticket) await this.#d.workers.kill(w.pid);
+    project.log.append(ticket, {
+      run: this.#d.newId(), node: facts.agentNode ?? "runner", kind: "node-outcome", decision: "agent worker", why,
+      evidence: null, result, payload: { nodeKind: "agent" },
+    });
   }
 
   /**
@@ -146,7 +277,7 @@ export class Runner {
   async #recover(): Promise<void> {
     for (const orphan of await this.#d.workers.list()) {
       await this.#d.workers.kill(orphan.pid);
-      const project = await this.#owner(orphan.ticket);
+      const project = (await this.#owner(orphan.ticket))?.project;
       if (!project) continue;
       const run = this.#d.newId();
       const node = runningWorkerNode(project.log, orphan.ticket);
@@ -187,6 +318,12 @@ export class Runner {
         } while (entry.rerun);
       } finally {
         this.#inflight.delete(key);
+        this.#admitted.delete(key);
+        // A failed attempt goes straight back in line as an in-flight tree; anything else (an infrastructure
+        // error, a tree waiting on nothing new) waits for the next poll, so it cannot spin.
+        if (ticketFacts(project.log.read(ticket)).lastResult !== "fail") this.#cooling.add(key);
+        // A slot may have freed, or a blocker may have merged: let the next ticket in line start now.
+        this.#track(this.#tick("event"), "dispatch");
       }
     })();
     this.#passes.add(pass);

@@ -31,10 +31,15 @@ interface IssueNode {
   assignee: { id: string } | null;
   labels: { nodes: { name: string }[] };
   attachments: { nodes: { title: string | null; url: string }[] };
+  priority?: number;
+  createdAt?: string;
+  /** Relations where another issue points at this one; a `blocks` relation names a blocker. */
+  inverseRelations?: { nodes: { type: string; issue: { identifier: string } }[] };
 }
 
 const ISSUE_FIELDS = `identifier title description state { name } assignee { id }
-  labels { nodes { name } } attachments { nodes { title url } }`;
+  labels { nodes { name } } attachments { nodes { title url } }
+  priority createdAt inverseRelations { nodes { type issue { identifier } } }`;
 
 /**
  * Linear as the tracker. Checks at startup that every mapped state and label exists
@@ -103,6 +108,9 @@ export async function createLinearTracker(config: TrackerConfig, opts: LinearOpt
       abt: names.has(config.labels.abt),
       claimed: n.assignee !== null,
       links: n.attachments.nodes.map((a) => ({ title: a.title ?? a.url, url: a.url })),
+      priority: n.priority ?? 0,
+      createdAt: n.createdAt ?? "",
+      blockedBy: (n.inverseRelations?.nodes ?? []).filter((r) => r.type === "blocks").map((r) => r.issue.identifier),
       ...(workType && { workType }),
       ...(risk && { risk }),
     };

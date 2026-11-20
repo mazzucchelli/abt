@@ -115,7 +115,7 @@ test("abt log show fails for a ticket with no log", () => {
   assert.match(r.stderr, /T-9/);
 });
 
-test("a worker may append ask-point and pivot records only", () => {
+test("a worker may append ask-point, pivot and blocked records only", () => {
   const { abt, file } = setup();
   const worker = (args: string[], input: unknown) => {
     const home = file("X").replace(/\/log\/X\.jsonl$/, "");
@@ -135,11 +135,30 @@ test("a worker may append ask-point and pivot records only", () => {
 
   const refused = worker(["log", "append", "T-1"], nodeOutcome());
   assert.equal(refused.status, 1);
-  assert.match(refused.stderr, /workers may only write ask-point and pivot/);
+  assert.match(refused.stderr, /workers may only write ask-point, pivot and blocked/);
   assert.equal(readFileSync(file("T-1"), "utf8").trim().split("\n").length, 2);
 
   const other = worker(["log", "append", "T-2"], ask);
   assert.equal(other.status, 1);
   assert.match(other.stderr, /T-1/);
   assert.equal(abt(["log", "append", "T-3"], nodeOutcome()).status, 0, "without the worker role any kind is accepted");
+});
+
+test("a worker marks its ticket blocked with abt log append", () => {
+  const { file } = setup();
+  const abt = (args: string[], input: unknown) =>
+    spawnSync("bin/abt", args, {
+      encoding: "utf8",
+      input: JSON.stringify(input),
+      env: { ...process.env, ABT_HOME: file("X").replace(/\/log\/X\.jsonl$/, ""), ABT_ROLE: "worker", ABT_TICKET: "T-1" },
+    });
+  const r = abt(["log", "append", "T-1"], {
+    run: "run-1", node: null, kind: "blocked", decision: "blocked by T-2", why: "needs T-2's API first",
+    evidence: null, result: "ok", payload: { by: ["T-2"] },
+  });
+  assert.equal(r.status, 0, r.stderr);
+  const empty = abt(["log", "append", "T-1"], {
+    run: "run-1", node: null, kind: "blocked", decision: "blocked", why: "x", evidence: null, result: "ok", payload: { by: [] },
+  });
+  assert.notEqual(empty.status, 0);
 });
