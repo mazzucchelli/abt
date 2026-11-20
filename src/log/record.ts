@@ -14,7 +14,7 @@ export const RECORD_KINDS = [
 ] as const;
 export type RecordKind = (typeof RECORD_KINDS)[number];
 
-export const RESULTS = ["ok", "fail", "running", "skipped", "inconclusive", "open"] as const;
+export const RESULTS = ["ok", "fail", "running", "skipped", "inconclusive", "open", "error"] as const;
 export type Result = (typeof RESULTS)[number];
 
 export interface DecisionRecord {

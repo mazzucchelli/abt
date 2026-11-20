@@ -26,7 +26,7 @@
     "decision": { "type": "string", "minLength": 1 },
     "why": { "type": "string" },
     "evidence": { "type": ["string", "null"], "minLength": 1 },
-    "result": { "enum": ["ok", "fail", "running", "skipped", "inconclusive", "open"] },
+    "result": { "enum": ["ok", "fail", "running", "skipped", "inconclusive", "open", "error"] },
     "supersedes": { "type": "string", "minLength": 1 },
     "payload": { "type": "object" }
   },
@@ -41,7 +41,7 @@
           "payload": {
             "required": ["nodeKind"],
             "properties": {
-              "nodeKind": { "enum": ["seq", "fallback", "check", "action", "agent"] },
+              "nodeKind": { "enum": ["seq", "fallback", "all", "any", "not", "retry", "timeout", "check", "script", "action", "agent"] },
               "worker": { "type": "string", "minLength": 1 }
             },
             "additionalProperties": false

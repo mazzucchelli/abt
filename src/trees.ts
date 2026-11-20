@@ -16,6 +16,19 @@ export interface TreeStore {
   read(name: string): Promise<LoadedTree | undefined>;
 }
 
+/** Project trees over plugin trees: the first store that has the name wins. */
+export class LayeredTrees implements TreeStore {
+  readonly #project: TreeStore;
+  readonly #plugin: TreeStore;
+  constructor(project: TreeStore, plugin: TreeStore) {
+    this.#project = project;
+    this.#plugin = plugin;
+  }
+  async read(name: string): Promise<LoadedTree | undefined> {
+    return (await this.#project.read(name)) ?? (await this.#plugin.read(name));
+  }
+}
+
 /** A project tree replaces the plugin default of the same name. */
 export async function resolveTree(name: string, project: TreeStore, plugin: TreeStore): Promise<LoadedTree> {
   const found = (await project.read(name)) ?? (await plugin.read(name));

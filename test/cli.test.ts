@@ -38,7 +38,7 @@ test("abt with an unknown subcommand prints usage and fails", () => {
   assert.match(r.stderr, /usage: abt/);
 });
 
-import { mkdtempSync, readFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -86,4 +86,34 @@ test("abt run reports bad input without running", () => {
   assert.match(run(["run", "test/fixtures/invalid.yaml", "FAKE-1", ...w]).stderr, /unknown check/);
   assert.match(run(["run", "test/fixtures/land-ish.yaml", "FAKE-1"]).stderr, /--world/);
   assert.match(run(["run", "test/fixtures/land-ish.yaml", "NOPE-1", ...w]).stderr, /NOPE-1/);
+});
+
+function treeDir(files: Record<string, string>): string {
+  const dir = mkdtempSync(join(tmpdir(), "abt-trees-"));
+  for (const [name, body] of Object.entries(files)) writeFileSync(join(dir, name), body);
+  return dir;
+}
+
+test("abt validate rejects a use that points to a tree that does not exist", () => {
+  const dir = treeDir({ "main.yaml": "seq:\n  - action: claim\n  - use: ghost\n" });
+  const r = abt("validate", join(dir, "main.yaml"));
+  assert.equal(r.status, 1);
+  assert.equal(r.stderr.trim(), `${join(dir, "main.yaml")}:3:10 use "ghost": no tree named "ghost"`);
+});
+
+test("abt validate accepts a use of a sibling tree or of a plugin default tree", () => {
+  const dir = treeDir({ "main.yaml": "seq:\n  - use: shared\n  - use: claim\n", "shared.yaml": "action: cleanup\n" });
+  assert.equal(abt("validate", join(dir, "main.yaml")).status, 0);
+});
+
+test("abt validate follows use into subtrees, and survives a loop", () => {
+  const dir = treeDir({ "main.yaml": "use: a\n", "a.yaml": "use: b\n", "b.yaml": "seq:\n  - use: a\n  - use: ghost\n" });
+  const r = abt("validate", join(dir, "main.yaml"));
+  assert.equal(r.status, 1);
+  assert.equal(r.stderr.trim(), `${join(dir, "b.yaml")}:3:10 use "ghost": no tree named "ghost"`);
+});
+
+test("abt validate does not mind placeholders in a subtree, which are filled in at run time", () => {
+  const dir = treeDir({ "main.yaml": "use: step\nwith:\n  agent: tdd-afk\n", "step.yaml": "agent: ${agent}\n" });
+  assert.equal(abt("validate", join(dir, "main.yaml")).status, 0);
 });

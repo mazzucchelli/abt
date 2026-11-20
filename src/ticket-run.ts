@@ -3,7 +3,7 @@ import { treeViolations } from "./invariants.ts";
 import type { DecisionRecord, Result } from "./log/record.ts";
 import { tierFor } from "./routing.ts";
 import { parseTree, TreeError } from "./tree.ts";
-import { resolveTree, type TreeStore } from "./trees.ts";
+import { LayeredTrees, resolveTree, type TreeStore } from "./trees.ts";
 
 export interface TicketRunDeps extends Omit<PassDeps, "tree" | "run" | "file"> {
   /** Default trees shipped with the plugin. */
@@ -40,11 +40,12 @@ export async function runTicket(deps: TicketRunDeps): Promise<TicketRunResult> {
   }
   if (state !== "Todo" && state !== "In progress") return { run, result: "skipped", terminal: false };
 
+  const trees = new LayeredTrees(deps.project, deps.plugin);
   const sources = {} as Record<Name, { source: string; file: string }>;
   for (const name of TREES) {
     try {
       const loaded = await resolveTree(name, deps.project, deps.plugin);
-      const errors = treeViolations(parseTree(loaded.source, loaded.file), loaded.file);
+      const errors = treeViolations(await parseTree(loaded.source, loaded.file, trees), loaded.file);
       if (errors.length > 0) return refuse(deps, run, name, errors);
       sources[name] = loaded;
     } catch (e) {
@@ -54,7 +55,7 @@ export async function runTicket(deps: TicketRunDeps): Promise<TicketRunResult> {
       throw e;
     }
   }
-  const pass = (name: Name) => runPass({ ...deps, run, tree: sources[name].source, file: sources[name].file });
+  const pass = (name: Name) => runPass({ ...deps, run, trees, tree: sources[name].source, file: sources[name].file });
 
   if (!log.read(ticket).some((r) => r.kind === "risk-assessment")) {
     const { tier, why } = tierFor(await tracker.readTicket(ticket));
@@ -86,7 +87,7 @@ export async function runTicket(deps: TicketRunDeps): Promise<TicketRunResult> {
 async function sweep(deps: TicketRunDeps, run: string, tree?: { source: string; file: string }): Promise<void> {
   const { workspace, log, ticket } = deps;
   const loaded = tree ?? (await resolveTree("cleanup", deps.project, deps.plugin));
-  await runPass({ ...deps, run, tree: loaded.source, file: loaded.file });
+  await runPass({ ...deps, run, trees: new LayeredTrees(deps.project, deps.plugin), tree: loaded.source, file: loaded.file });
   if ((await workspace.find(ticket)) === undefined) return;
   await workspace.remove(ticket);
   log.append(ticket, {

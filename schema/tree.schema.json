@@ -26,6 +26,13 @@
           }
         },
         {
+          "if": { "required": ["script"] },
+          "then": {
+            "properties": { "id": { "$ref": "#/$defs/id" }, "script": { "$ref": "#/$defs/text" } },
+            "additionalProperties": false
+          }
+        },
+        {
           "if": { "required": ["all"] },
           "then": {
             "properties": {
@@ -60,6 +67,7 @@
       "anyOf": [
         { "required": ["check"] },
         { "required": ["judge"] },
+        { "required": ["script"] },
         { "required": ["all"] },
         { "required": ["any"] },
         { "required": ["not"] }
@@ -76,6 +84,7 @@
         { "required": ["timeout"] },
         { "required": ["check"] },
         { "required": ["judge"] },
+        { "required": ["script"] },
         { "required": ["all"] },
         { "required": ["any"] },
         { "required": ["not"] },
@@ -155,7 +164,7 @@
             "properties": {
               "id": { "$ref": "#/$defs/id" },
               "use": { "$ref": "#/$defs/text" },
-              "with": { "type": "object" }
+              "with": { "type": "object", "additionalProperties": { "type": ["string", "number", "boolean"] } }
             },
             "additionalProperties": false
           }

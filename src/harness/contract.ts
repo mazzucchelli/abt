@@ -20,8 +20,9 @@ export interface WorkerRequest {
 }
 
 export interface WorkerOutcome {
-  result: "ok" | "fail" | "running";
-  /** Process exit status; null while the worker is still running. */
+  /** `error` is an infrastructure failure (the harness itself broke), not the worker's verdict. */
+  result: "ok" | "fail" | "running" | "error";
+  /** Process exit status; null while the worker is still running or when there is none. */
   exitStatus: number | null;
   /** Handle of the worker's session, so a later pass can poll it. */
   sessionId: string;
