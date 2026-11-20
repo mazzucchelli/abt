@@ -117,3 +117,17 @@ test("abt validate does not mind placeholders in a subtree, which are filled in 
   const dir = treeDir({ "main.yaml": "use: step\nwith:\n  agent: tdd-afk\n", "step.yaml": "agent: ${agent}\n" });
   assert.equal(abt("validate", join(dir, "main.yaml")).status, 0);
 });
+
+test("abt runner status reports a stopped runner with exit 3", () => {
+  const home = mkdtempSync(join(tmpdir(), "abt-cli-"));
+  const r = spawnSync("bin/abt", ["runner", "status"], { encoding: "utf8", env: { ...process.env, ABT_HOME: home } });
+  assert.equal(r.status, 3);
+  assert.equal(r.stdout.trim(), "runner stopped");
+});
+
+test("abt runner nudge says so when no runner is listening", () => {
+  const home = mkdtempSync(join(tmpdir(), "abt-cli-"));
+  const r = spawnSync("bin/abt", ["runner", "nudge", "ABT-1"], { encoding: "utf8", env: { ...process.env, ABT_HOME: home } });
+  assert.equal(r.status, 1);
+  assert.match(r.stderr, /cannot reach the runner/);
+});
