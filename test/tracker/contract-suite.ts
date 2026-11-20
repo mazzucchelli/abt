@@ -86,6 +86,18 @@ export function contractSuite(name: string, make: () => Promise<Tracker> | Track
     assert.deepEqual((await tracker.readTicket(id)).links, [{ title: "PR", url: "https://example.com/pr/1" }]);
   });
 
+  t("setRisk replaces the ticket's risk tier and keeps its other labels", async (tracker) => {
+    const { id } = await tracker.createTicket({ title: uniq(), body: "", workType: "implement", risk: "low" });
+    await tracker.setRisk(id, "high");
+    let t = await tracker.readTicket(id);
+    assert.equal(t.risk, "high");
+    assert.equal(t.workType, "implement");
+    assert.equal(t.abt, true);
+    await tracker.setRisk(id, "medium");
+    t = await tracker.readTicket(id);
+    assert.equal(t.risk, "medium");
+  });
+
   t("readTicket on an unknown id rejects", async (tracker) => {
     await assert.rejects(tracker.readTicket("NOPE-999999"));
   });

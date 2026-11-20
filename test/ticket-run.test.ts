@@ -215,3 +215,17 @@ test("a crash after the PR was opened but before cleanup still cleans up and sum
   assert.equal((await w.comments()).filter((c) => c.kind === "summary").length, 1);
   assert.equal(w.harness.requests.length, 1, "the worker is not dispatched again");
 });
+
+test("with risk assessment wired in, intake assesses the ticket, labels it and logs the record", async () => {
+  const w = await world();
+  const t = await w.tracker.createTicket({ title: "fix: add a column", body: "Needs a new migration in db/migrations/2026_add_col.sql." });
+  const classifier = { classify: async () => ({ tier: "low" as const, confidence: 0.9, reasons: ["small"] }) };
+  const r = await runTicket({ ...w.deps(), ticket: t.id, risk: { classifier } });
+  assert.equal(r.result, "open");
+  const rec = w.log.read(t.id).find((x) => x.kind === "risk-assessment")!;
+  assert.equal(rec.payload.tier, "high");
+  assert.equal(rec.payload.moment, "intake");
+  assert.equal((await w.tracker.readTicket(t.id)).risk, "high");
+  const summary = (await w.tracker.readCommentsSince(t.id)).comments.find((c) => c.kind === "summary")!;
+  assert.equal(summary.data!.tier, "high");
+});
