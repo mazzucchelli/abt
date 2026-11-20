@@ -103,7 +103,7 @@ async function runCommand(args: string[]): Promise<number> {
     await world.tracker.readTicket(ticket);
     const newId = randomUUID;
     const log = new DecisionLog(abtHome(), world.clock, newId);
-    const { run, result } = await runPass({ tree, ticket, tracker: world.tracker, codeHost: world.codeHost, harness: world.harness, log, newId });
+    const { run, result } = await runPass({ tree, ticket, tracker: world.tracker, codeHost: world.codeHost, harness: world.harness, workspace: world.workspace, log, newId });
     console.log(renderRun(log.read(ticket), run));
     console.log(`pass ${run}: ${result}`);
     return result === "ok" || result === "running" || result === "open" ? 0 : 1;

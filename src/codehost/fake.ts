@@ -27,8 +27,6 @@ export class FakeCodeHost implements CodeHost {
     this.#get(ticket).merged = true;
   }
 
-  async cleanup(_ticket: string): Promise<void> {}
-
   #get(ticket: string): CodeHostFacts {
     let f = this.#facts.get(ticket);
     if (!f) {

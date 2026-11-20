@@ -1,0 +1,10 @@
+# The first end-to-end path: a worker does the work, a PR is ensured, and landing is a stub.
+id: implement
+seq:
+  - agent: tdd-afk
+  - ensure:
+      cond:
+        check: pr-exists
+      else:
+        action: open-pr
+  - action: land

@@ -6,6 +6,7 @@ export const CHECK_NAMES = [
   "diff-size",
   "trees-valid",
   "feedback-check",
+  "pr-exists",
 ] as const;
 export type CheckName = (typeof CHECK_NAMES)[number];
 
@@ -22,5 +23,4 @@ export interface CodeHost {
   /** Opens a PR for the ticket's branch and returns its URL. */
   openPr(ticket: string): Promise<string>;
   merge(ticket: string): Promise<void>;
-  cleanup(ticket: string): Promise<void>;
 }

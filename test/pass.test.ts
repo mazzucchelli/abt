@@ -9,17 +9,19 @@ import { FakeHarness } from "../src/harness/fake.ts";
 import { DecisionLog } from "../src/log/store.ts";
 import { runPass } from "../src/pass.ts";
 import { InMemoryTracker } from "../src/tracker/fake.ts";
+import { FakeWorkspace } from "../src/workspace/fake.ts";
 
 async function world() {
   const tracker = new InMemoryTracker();
   const { id } = await tracker.createTicket({ title: "t", body: "b" });
   const codeHost = new FakeCodeHost();
   const harness = new FakeHarness();
+  const workspace = new FakeWorkspace();
   const clock = new FakeClock();
   let n = 0;
   const newId = () => `id-${++n}`;
   const log = new DecisionLog(mkdtempSync(join(tmpdir(), "abt-pass-")), clock, newId);
-  const pass = (tree: string) => runPass({ tree, ticket: id, tracker, codeHost, harness, log, newId });
+  const pass = (tree: string) => runPass({ tree, ticket: id, tracker, codeHost, harness, workspace, log, newId });
   /** node -> result for the latest run of this ticket */
   const outcomes = () => {
     const recs = log.read(id);
@@ -32,8 +34,13 @@ async function world() {
     const run = recs.at(-1)!.run;
     return Object.fromEntries(recs.filter((r) => r.run === run).map((r) => [r.node, r]));
   };
+  /** Claim the ticket the way the claim action does, so agent nodes may run. */
+  const claim = async () => {
+    await tracker.claim(id);
+    await workspace.ensure(id, "feat/x");
+  };
   const links = async () => (await tracker.readTicket(id)).links.map((l) => l.url);
-  return { tracker, codeHost, harness, log, ticket: id, pass, outcomes, records, links };
+  return { claim, tracker, codeHost, harness, workspace, log, ticket: id, pass, outcomes, records, links };
 }
 
 test("a failing check fails the pass and is recorded", async () => {
@@ -107,7 +114,7 @@ seq:
 `);
   assert.equal(r.result, "ok");
   const t = await w.tracker.readTicket(w.ticket);
-  assert.equal(t.state, "In progress");
+  assert.equal(t.state, "In review");
   assert.deepEqual(t.links.map((l) => l.url), [`https://fake.host/${w.ticket}/pr/1`]);
   const recs = w.records();
   assert.equal(recs["root/1"]!.evidence, `https://fake.host/${w.ticket}/pr/1`);
@@ -154,6 +161,7 @@ ensure:
 
 test("ensure succeeds when the else branch makes the condition true", async () => {
   const w = await world();
+  await w.claim();
   w.harness.script("fixer", { result: "ok" });
   w.codeHost.setCheck(w.ticket, "feedback-check", false);
   // the fake harness flips the fact as a side effect of the worker, via the code host
@@ -231,6 +239,7 @@ seq:
 
 test("a running worker is polled on the next pass, not dispatched again", async () => {
   const w = await world();
+  await w.claim();
   w.harness.script("tdd-afk", { result: "running" }, { result: "ok" });
   const tree = "agent: tdd-afk";
   assert.equal((await w.pass(tree)).result, "running");
@@ -252,4 +261,50 @@ test("node kinds this runner does not evaluate yet are rejected before anything 
   const w = await world();
   await assert.rejects(() => w.pass("judge: is it fine?"), /judge/);
   assert.deepEqual(w.log.read(w.ticket), []);
+});
+
+test("a worker is refused before the ticket is claimed", async () => {
+  const w = await world();
+  w.harness.script("tdd-afk", { result: "ok" });
+  const r = await w.pass("agent: tdd-afk");
+  assert.equal(r.result, "fail");
+  assert.match(w.records().root!.why, /claim before work/);
+  assert.deepEqual(w.harness.requests, []);
+});
+
+test("a worker gets the skill, prompt, worktree, routed model and effort, and feedback config", async () => {
+  const w = await world();
+  await w.claim();
+  w.harness.script("tdd-afk", { result: "ok" });
+  await w.pass("agent: tdd-afk");
+  const req = w.harness.requests[0]!;
+  assert.equal(req.skill, "tdd-afk");
+  assert.equal(req.prompt, "t\n\nb");
+  assert.equal(req.worktree, await w.workspace.find(w.ticket));
+  assert.deepEqual([req.model, req.effort], ["sonnet", "medium"]);
+  assert.deepEqual(req.feedback, { commands: [] });
+  const routing = w.log.read(w.ticket).find((r) => r.kind === "routing")!;
+  assert.deepEqual(routing.payload, { grade: "standard", model: "sonnet", effort: "medium" });
+  assert.match(w.records().root!.evidence!, /transcripts/);
+});
+
+test("claim creates branch and worktree, moves the ticket to In progress, and is idempotent", async () => {
+  const w = await world();
+  await w.pass("action: claim");
+  await w.pass("action: claim");
+  assert.equal(w.workspace.branchOf(w.ticket), "feat/fake-1-t");
+  assert.equal((await w.tracker.readTicket(w.ticket)).state, "In progress");
+  assert.deepEqual(w.workspace.events, [`add ${w.ticket} feat/fake-1-t`]);
+});
+
+test("pr-exists reads the PR from the code host", async () => {
+  const w = await world();
+  assert.equal((await w.pass("check: pr-exists")).result, "fail");
+  await w.codeHost.openPr(w.ticket);
+  assert.equal((await w.pass("check: pr-exists")).result, "ok");
+});
+
+test("land is a stub that leaves the PR open", async () => {
+  const w = await world();
+  assert.equal((await w.pass("action: land")).result, "open");
 });

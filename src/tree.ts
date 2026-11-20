@@ -25,8 +25,8 @@ const KNOWN = ["seq", "fallback", "retry", "timeout", "check", "judge", "all", "
  * - `ensure: {cond, else}` becomes `fallback[cond, seq[else, cond]]`. The second `cond` is a
  *   re-check, so it takes path IDs and not any explicit `id:` the first one carries.
  */
-export function parseTree(source: string): TreeNode {
-  const problems = validate(source, "tree");
+export function parseTree(source: string, file = "tree"): TreeNode {
+  const problems = validate(source, file);
   if (problems.length > 0) throw new TreeError(problems.map((p) => p.message).join("\n"));
   const root = build(parse(source) as Raw, "root", false);
   const seen = new Set<string>();

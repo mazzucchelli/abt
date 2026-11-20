@@ -15,7 +15,7 @@ test("abt validate exits non-zero and prints file:line:col diagnostics on an inv
   assert.notEqual(r.status, 0);
   assert.equal(
     r.stderr.trim(),
-    'test/fixtures/invalid.yaml:1:8 unknown check "branch-up-to-dat" (did you mean "branch-up-to-date"? known: branch-up-to-date, required-checks-green, diff-size, trees-valid, feedback-check)',
+    'test/fixtures/invalid.yaml:1:8 unknown check "branch-up-to-dat" (did you mean "branch-up-to-date"? known: branch-up-to-date, required-checks-green, diff-size, trees-valid, feedback-check, pr-exists)',
   );
 });
 
