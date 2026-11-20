@@ -19,6 +19,14 @@ export interface WorkerRequest {
   session?: string;
 }
 
+/** The subscription's usage limit was hit. Structured so the scheduler can hold dispatch until the reset. */
+export interface UsageLimit {
+  /** For example `five_hour` or `seven_day`. */
+  rateLimitType?: string;
+  /** When the limit resets, in epoch seconds. Absent when the harness did not report it. */
+  resetsAt?: number;
+}
+
 export interface WorkerOutcome {
   /** `error` is an infrastructure failure (the harness itself broke), not the worker's verdict. */
   result: "ok" | "fail" | "running" | "error";
@@ -28,6 +36,8 @@ export interface WorkerOutcome {
   sessionId: string;
   transcriptPath: string;
   why: string;
+  /** Set when the run ended on a usage limit. Such a run is an `error`, never the worker's verdict. */
+  usageLimit?: UsageLimit;
 }
 
 export interface HarnessAdapter {
