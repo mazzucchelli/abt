@@ -82,21 +82,22 @@ async function runDaemon(home: string, flags: string[]): Promise<number> {
   const log = new DecisionLog(home, systemClock, newId);
   const plugin = new DirTrees(fileURLToPath(new URL("../../defaults/trees/", import.meta.url)));
   let projects: RunnerProject[];
+  const config = loadGlobalConfig(home);
   if (worldFile) {
     const world = await loadFakeWorld(worldFile);
     const { tracker, codeHost, harness, workspace } = world;
-    projects = [{ name: "fake", tracker, log, deps: (ticket) => ({ ticket, tracker, codeHost, harness, workspace, log, newId, plugin, project: new MemoryTrees(".agents/abt/trees", {}) }) }];
+    projects = [{ name: "fake", tracker, log, ...(config.projects[0]?.maxWorkers && { maxWorkers: config.projects[0].maxWorkers }), deps: (ticket) => ({ ticket, tracker, codeHost, harness, workspace, log, newId, plugin, project: new MemoryTrees(".agents/abt/trees", {}) }) }];
   } else {
     // Real code host and harness adapters are not built yet, so a listed project cannot be served.
     // Say so and keep running (launchd would only restart a daemon that exits), heartbeat and all.
-    for (const p of loadGlobalConfig(home).projects) {
+    for (const p of config.projects) {
       console.error(`abt runner: project "${p.name}" skipped: real code host and harness adapters are not wired yet`);
     }
     projects = [];
   }
   const runner = new Runner({
     home, clock: systemClock, timers: systemTimers, pid: process.pid, isAlive: processAlive, projects,
-    workers: new ProcessWorkers(), newId, store: new DispatchStore(join(home, "dispatch.json")), socketPath: join(home, "runner.sock"),
+    scheduling: config.scheduling, workers: new ProcessWorkers(), newId, store: new DispatchStore(join(home, "dispatch.json")), socketPath: join(home, "runner.sock"),
   });
   try {
     await runner.start();

@@ -93,7 +93,7 @@ export function buildLaunch(l: WorkerLaunch | JudgeLaunch): SpawnSpec {
   const feedback = (l.kind === "worker" && l.feedback) || [];
   const audit =
     l.kind === "worker" && l.ticket
-      ? `Before you hand back, audit your own decision records: run \`abt log show ${l.ticket}\`, check that every ask-point and pivot record you wrote says what you actually did, and write a corrected record that supersedes any that is wrong. You may write only ask-point and pivot records.`
+      ? `Before you hand back, audit your own decision records: run \`abt log show ${l.ticket}\`, check that every ask-point and pivot record you wrote says what you actually did, and write a corrected record that supersedes any that is wrong. If the ticket turns out to depend on another ticket that has not merged, append a blocked record (payload {"by": ["<ticket id>"]}) and stop: the runner frees your slot and resumes the ticket once it merges. You may write only ask-point, pivot and blocked records.`
       : undefined;
   const prompt =
     l.kind === "worker" && l.skill

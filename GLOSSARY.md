@@ -10,7 +10,7 @@ Domain terms for the AI workflow. Definitions only, no implementation detail.
 
 **Pass**: One run of a ticket's behavior tree from the root. A pass happens when the ticket's worker ends, when the primary agent nudges the runner, or on a regular poll.
 
-**Worker slot**: Permission for one worker agent to be running. Slots are shared across all projects on a machine, and a ticket waiting on CI, an approval or the human holds none.
+**Worker slot**: Permission for one worker agent to be running. Slots are shared across all projects on a machine, with an optional lower cap per project, and only a running worker holds one: a ticket waiting on CI, an approval, a blocker or the human holds none.
 
 **Behavior tree**: The definition of how one work type moves from ticket to done: a tree of conditions (facts read from the world) and actions, re-run from the root on every pass, with no state stored inside it.
 

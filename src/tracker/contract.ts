@@ -33,6 +33,12 @@ export interface Ticket {
   /** Whether someone has claimed the ticket. */
   claimed: boolean;
   links: Link[];
+  /** Linear's scale: 1 urgent, 2 high, 3 medium, 4 low, 0 none. */
+  priority: number;
+  /** When the ticket was created (ISO), so the scheduler can take the oldest first. */
+  createdAt: string;
+  /** IDs of the tickets that block this one. It is dispatched only once every one has merged. */
+  blockedBy: string[];
 }
 
 export interface NewTicket {
@@ -40,6 +46,8 @@ export interface NewTicket {
   body: string;
   workType?: WorkType;
   risk?: RiskTier;
+  priority?: number;
+  blockedBy?: string[];
 }
 
 /** A machine-readable comment: a kind, readable text and optional JSON data. */

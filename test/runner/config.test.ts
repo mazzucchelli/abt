@@ -28,3 +28,19 @@ test("two projects with the same name are refused", () => {
   writeFileSync(join(h, "config.yaml"), "projects:\n  - {name: a, path: /x}\n  - {name: a, path: /y}\n");
   assert.throws(() => loadGlobalConfig(h), /duplicate project "a"/);
 });
+
+test("the config sets the global slot cap, per-project caps and wall-clock caps", () => {
+  const h = home();
+  writeFileSync(join(h, "config.yaml"), "maxWorkers: 2\nwallClockMinutes: {hard: 240}\nprojects:\n  - {name: a, path: /x, maxWorkers: 1}\n  - {name: b, path: /y}\n");
+  const c = loadGlobalConfig(h);
+  assert.deepEqual(c.scheduling, { globalCap: 2, wallClockMinutes: { hard: 240 } });
+  assert.deepEqual(c.projects, [{ name: "a", path: "/x", maxWorkers: 1 }, { name: "b", path: "/y" }]);
+});
+
+test("a cap that is not a positive whole number is refused", () => {
+  const h = home();
+  writeFileSync(join(h, "config.yaml"), "maxWorkers: 0\n");
+  assert.throws(() => loadGlobalConfig(h), /maxWorkers must be a whole number/);
+  writeFileSync(join(h, "config.yaml"), "wallClockMinutes: {huge: 5}\n");
+  assert.throws(() => loadGlobalConfig(h), /not a grade/);
+});

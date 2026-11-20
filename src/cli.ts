@@ -66,11 +66,11 @@ async function main(argv: string[]): Promise<number> {
   return 2;
 }
 
-/** A worker (ABT_ROLE=worker) may write only its own ticket's ask-point and pivot records. */
+/** A worker (ABT_ROLE=worker) may write only its own ticket's ask-point, pivot and blocked records. */
 function workerLogViolation(env: NodeJS.ProcessEnv, ticket: string, input: RecordInput): string | undefined {
   if (env.ABT_ROLE !== "worker") return undefined;
   if (!WORKER_KINDS.includes(input?.kind as RecordKind)) {
-    return `workers may only write ask-point and pivot records, not ${JSON.stringify(input?.kind)}`;
+    return `workers may only write ask-point, pivot and blocked records, not ${JSON.stringify(input?.kind)}`;
   }
   if (env.ABT_TICKET && env.ABT_TICKET !== ticket) return `workers may only write to their own ticket's log (${env.ABT_TICKET}), not ${ticket}`;
   return undefined;

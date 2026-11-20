@@ -20,7 +20,8 @@
         "retype",
         "escalation",
         "merge",
-        "pivot"
+        "pivot",
+        "blocked"
       ]
     },
     "decision": { "type": "string", "minLength": 1 },
@@ -42,7 +43,15 @@
             "required": ["nodeKind"],
             "properties": {
               "nodeKind": { "enum": ["seq", "fallback", "all", "any", "not", "retry", "timeout", "check", "script", "action", "agent"] },
-              "worker": { "type": "string", "minLength": 1 }
+              "worker": { "type": "string", "minLength": 1 },
+              "usageLimit": {
+                "type": "object",
+                "properties": {
+                  "rateLimitType": { "type": "string", "minLength": 1 },
+                  "resetsAt": { "type": "number" }
+                },
+                "additionalProperties": false
+              }
             },
             "additionalProperties": false
           }
@@ -175,6 +184,20 @@
               "from": { "type": "string", "minLength": 1 },
               "to": { "type": "string", "minLength": 1 },
               "trigger": { "type": "string", "minLength": 1 }
+            },
+            "additionalProperties": false
+          }
+        }
+      }
+    },
+    {
+      "if": { "properties": { "kind": { "const": "blocked" } } },
+      "then": {
+        "properties": {
+          "payload": {
+            "required": ["by"],
+            "properties": {
+              "by": { "type": "array", "minItems": 1, "items": { "type": "string", "minLength": 1 } }
             },
             "additionalProperties": false
           }

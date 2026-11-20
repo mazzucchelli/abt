@@ -1,6 +1,6 @@
 import type { CodeHost } from "./codehost/contract.ts";
 import type { CheckName } from "./codehost/contract.ts";
-import type { FeedbackConfig, HarnessAdapter } from "./harness/contract.ts";
+import type { FeedbackConfig, HarnessAdapter, UsageLimit } from "./harness/contract.ts";
 import type { DecisionRecord, Result } from "./log/record.ts";
 import type { DecisionLog } from "./log/store.ts";
 import { parseTree, type TreeNode } from "./tree.ts";
@@ -42,6 +42,7 @@ interface Outcome {
   why: string;
   evidence?: string;
   worker?: string;
+  usageLimit?: UsageLimit;
 }
 
 /**
@@ -269,7 +270,7 @@ class Pass {
       run: this.#run,
       ...(session && { session }),
     });
-    return { result: out.result, why: out.exitStatus === null ? out.why : `${out.why} (exit ${out.exitStatus})`, worker: out.sessionId, evidence: out.transcriptPath };
+    return { result: out.result, why: out.exitStatus === null ? out.why : `${out.why} (exit ${out.exitStatus})`, worker: out.sessionId, evidence: out.transcriptPath, ...(out.usageLimit && { usageLimit: out.usageLimit }) };
   }
 
   /** The worker handle from this node's latest non-superseded outcome, if that worker was still running. */
@@ -289,7 +290,7 @@ class Pass {
       why: o.why,
       evidence: o.evidence ?? null,
       result: o.result,
-      payload: { nodeKind: node.kind, ...(o.worker && { worker: o.worker }) },
+      payload: { nodeKind: node.kind, ...(o.worker && { worker: o.worker }), ...(o.usageLimit && { usageLimit: o.usageLimit }) },
     });
   }
 }

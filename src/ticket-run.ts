@@ -3,6 +3,7 @@ import { treeViolations } from "./invariants.ts";
 import type { DecisionRecord, Result } from "./log/record.ts";
 import { assessTicket, type RiskDeps } from "./risk/assess.ts";
 import { tierFor } from "./routing.ts";
+import { ticketFacts } from "./runner/scheduler.ts";
 import { parseTree, TreeError } from "./tree.ts";
 import { LayeredTrees, resolveTree, type TreeStore } from "./trees.ts";
 
@@ -81,6 +82,8 @@ export async function runTicket(deps: TicketRunDeps): Promise<TicketRunResult> {
 
   const impl = await pass("implement");
   if (impl.result === "running") return { run, result: "running", terminal: false };
+  // A usage limit is the subscription's, not the worker's verdict: the ticket stays in progress and is requeued after the reset.
+  if (impl.result === "error" && ticketFacts(log.read(ticket)).usageLimited) return { run, result: "running", terminal: false };
 
   await sweep(deps, run, sources.cleanup);
 
