@@ -35,7 +35,9 @@ type Name = (typeof TREES)[number];
 export async function runTicket(deps: TicketRunDeps): Promise<TicketRunResult> {
   const { tracker, workspace, log, ticket } = deps;
   const run = deps.newId();
-  const state = (await tracker.readTicket(ticket)).state;
+  const first = await tracker.readTicket(ticket);
+  if (first.workType === "research") return runResearch(deps, run);
+  const state = first.state;
   if (state === "In review" && (await workspace.find(ticket)) !== undefined) {
     // The PR was opened but the run died before cleanup: finish the terminal state, don't redo the work.
     await sweep(deps, run);
@@ -61,17 +63,7 @@ export async function runTicket(deps: TicketRunDeps): Promise<TicketRunResult> {
   }
   const pass = (name: Name) => runPass({ ...deps, run, trees, tree: sources[name].source, file: sources[name].file });
 
-  if (!log.read(ticket).some((r) => r.kind === "risk-assessment")) {
-    if (deps.risk) {
-      await assessTicket({ log, tracker, ...deps.risk }, { ticket, run, moment: "intake" });
-    } else {
-      const { tier, why } = tierFor(await tracker.readTicket(ticket));
-      log.append(ticket, {
-        run, node: null, kind: "risk-assessment", decision: `risk tier ${tier}`, why, evidence: null, result: "ok",
-        payload: { tier, reasons: [why] },
-      });
-    }
-  }
+  await assessOnce(deps, run);
 
   const claim = await pass("claim");
   if (claim.result !== "ok") return { run, result: claim.result, terminal: false };
@@ -88,17 +80,78 @@ export async function runTicket(deps: TicketRunDeps): Promise<TicketRunResult> {
   await sweep(deps, run, sources.cleanup);
 
   const succeeded = impl.result === "ok" || impl.result === "open";
-  if (!succeeded) escalate(deps, run, failureReason(log.read(ticket), run, impl.result), "a human to look at the failed run");
+  if (!succeeded) escalate(deps, run, failureReason(log.read(ticket), run, impl.result, "implement"), "a human to look at the failed run");
   await finish(deps, impl.result, succeeded ? undefined : "Needs you");
   return { run, result: impl.result, terminal: true };
 }
 
+/** Risk is assessed once per ticket, at intake. */
+async function assessOnce(deps: TicketRunDeps, run: string): Promise<void> {
+  const { log, tracker, ticket } = deps;
+  if (log.read(ticket).some((r) => r.kind === "risk-assessment")) return;
+  if (deps.risk) {
+    await assessTicket({ log, tracker, ...deps.risk }, { ticket, run, moment: "intake" });
+  } else {
+    const { tier, why } = tierFor(await tracker.readTicket(ticket));
+    log.append(ticket, {
+      run, node: null, kind: "risk-assessment", decision: `risk tier ${tier}`, why, evidence: null, result: "ok",
+      payload: { tier, reasons: [why] },
+    });
+  }
+}
+
+/**
+ * One run for a research ticket: the research tree end to end, claim and cleanup included, since
+ * there is no worktree to set up around it. A tree waiting on a human ack is `running` and sits in
+ * In review; the next run picks it up again. Success is Done, with nothing committed anywhere.
+ */
+async function runResearch(deps: TicketRunDeps, run: string): Promise<TicketRunResult> {
+  const { tracker, log, ticket } = deps;
+  const state = (await tracker.readTicket(ticket)).state;
+  if (state !== "Todo" && state !== "In progress" && state !== "In review") return { run, result: "skipped", terminal: false };
+
+  const trees = new LayeredTrees(deps.project, deps.plugin);
+  let loaded: { source: string; file: string };
+  try {
+    loaded = await resolveTree("research", deps.project, deps.plugin);
+    const errors = treeViolations(await parseTree(loaded.source, loaded.file, trees), loaded.file);
+    if (errors.length > 0) return refuse(deps, run, "research", errors);
+  } catch (e) {
+    if (e instanceof TreeError || /^no tree named/.test((e as Error).message)) {
+      return refuse(deps, run, "research", (e as Error).message.split("\n"));
+    }
+    throw e;
+  }
+  await assessOnce(deps, run);
+
+  const r = await runPass({ ...deps, run, trees, tree: loaded.source, file: loaded.file });
+  if (r.result === "running") return { run, result: "running", terminal: false };
+  if (r.result === "error" && ticketFacts(log.read(ticket)).usageLimited) return { run, result: "running", terminal: false };
+
+  await removeLeftovers(deps, run);
+  const succeeded = r.result === "ok";
+  if (!succeeded && !log.read(ticket).some((x) => x.run === run && x.kind === "escalation")) {
+    escalate(deps, run, failureReason(log.read(ticket), run, r.result, "research"), "a human to look at the failed run");
+  }
+  await finish(deps, r.result, succeeded ? "Done" : "Needs you");
+  return { run, result: r.result, terminal: true };
+}
+
 /** Cleanup on every terminal state: the cleanup tree, backed by the runner if the tree leaves the worktree behind. */
 async function sweep(deps: TicketRunDeps, run: string, tree?: { source: string; file: string }): Promise<void> {
-  const { workspace, log, ticket } = deps;
+  const { ticket } = deps;
   const loaded = tree ?? (await resolveTree("cleanup", deps.project, deps.plugin));
   await runPass({ ...deps, run, trees: new LayeredTrees(deps.project, deps.plugin), tree: loaded.source, file: loaded.file });
-  if ((await workspace.find(ticket)) === undefined) return;
+  await removeLeftovers(deps, run);
+}
+
+/** The backstop under the cleanup tree: any scratch directory is removed, and a worktree left behind is removed and the override logged. */
+async function removeLeftovers(deps: TicketRunDeps, run: string): Promise<void> {
+  const { workspace, log, ticket } = deps;
+  if ((await workspace.find(ticket)) === undefined) {
+    await workspace.remove(ticket);
+    return;
+  }
   await workspace.remove(ticket);
   log.append(ticket, {
     run, node: null, kind: "override", decision: "runner removed the worktree", why: "the cleanup tree left it behind; cleanup on every terminal state is an invariant",
@@ -106,11 +159,11 @@ async function sweep(deps: TicketRunDeps, run: string, tree?: { source: string; 
   });
 }
 
-function failureReason(records: DecisionRecord[], run: string, result: Result): string {
+function failureReason(records: DecisionRecord[], run: string, result: Result, tree: string): string {
   const leaf = records.find(
     (r) => r.run === run && r.kind === "node-outcome" && r.result === "fail" && (r.payload.nodeKind === "agent" || r.payload.nodeKind === "action"),
   );
-  return leaf ? `${leaf.node}: ${leaf.why}` : `the implement tree ended ${result}`;
+  return leaf ? `${leaf.node}: ${leaf.why}` : `the ${tree} tree ended ${result}`;
 }
 
 function escalate(deps: TicketRunDeps, run: string, reason: string, needs: string, evidence: string | null = null): void {
@@ -135,7 +188,7 @@ async function refuse(deps: TicketRunDeps, run: string, tree: string, errors: st
 }
 
 /** Posts the one structured summary comment and, if asked, moves the ticket's state. */
-async function finish(deps: TicketRunDeps, result: Result, moveTo?: "Needs you"): Promise<void> {
+async function finish(deps: TicketRunDeps, result: Result, moveTo?: "Needs you" | "Done"): Promise<void> {
   const { tracker, log, ticket } = deps;
   const recs = log.read(ticket);
   const risk = recs.findLast((r) => r.kind === "risk-assessment");

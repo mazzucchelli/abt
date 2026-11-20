@@ -4,6 +4,8 @@ export interface Workspace {
   ensure(ticket: string, branch: string): Promise<string>;
   /** Path of the ticket's worktree, if it exists. */
   find(ticket: string): Promise<string | undefined>;
-  /** Removes the worktree and prunes. Does nothing if it is already gone. */
+  /** A throwaway directory for work that touches no repository: no branch, no worktree. Created if missing. */
+  scratch(ticket: string): Promise<string>;
+  /** Removes the worktree and any scratch directory, and prunes. Does nothing if they are already gone. */
   remove(ticket: string): Promise<void>;
 }

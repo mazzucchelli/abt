@@ -1,0 +1,23 @@
+# Research ends in a doc, never in code: no worktree, no branch, no PR.
+# Findings go to the project's docs home and are linked from the ticket. The judge sits inside the
+# ensure so findings that fail it send the agent back; `retry` bounds how often.
+id: research
+seq:
+  - action: claim-no-worktree
+  - retry: 3
+    do:
+      ensure:
+        cond:
+          all:
+            - check: findings-linked
+            - check: gist-filled
+            - judge: Do the findings cite primary sources, not just secondary commentary?
+        else:
+          agent: research
+  - fallback:
+      - check: review-auto
+      - timeout: 2d
+        do:
+          action: await-ack
+      - action: escalate
+  - action: cleanup

@@ -1,6 +1,7 @@
 import type { CodeHost } from "./codehost/contract.ts";
 import type { CheckName } from "./codehost/contract.ts";
 import type { FeedbackConfig, HarnessAdapter, UsageLimit } from "./harness/contract.ts";
+import type { Judge } from "./judge/contract.ts";
 import type { DecisionRecord, Result } from "./log/record.ts";
 import type { DecisionLog } from "./log/store.ts";
 import { parseTree, type TreeNode } from "./tree.ts";
@@ -30,6 +31,10 @@ export interface PassDeps {
   /** Where `use:` finds its subtrees. */
   trees?: TreeStore;
   feedback?: FeedbackConfig;
+  /** Answers `judge:` nodes. Without one they end in `error`: a judgement is never guessed. */
+  judge?: Judge;
+  /** Whether a finished research ticket may skip the human's ack (the project's `review=auto`). Off unless the project turns it on. */
+  reviewAuto?: boolean;
 }
 
 export interface PassResult {
@@ -187,7 +192,11 @@ class Pass {
 
   async #leaf(node: TreeNode & { name: string }): Promise<Outcome> {
     const { tracker, codeHost, harness, workspace, ticket } = this.#d;
+    if (node.kind === "judge") return this.#judge(node);
+
     if (node.kind === "check") {
+      const tracked = await this.#trackerCheck(node.name);
+      if (tracked) return tracked;
       const facts = await codeHost.readFacts(ticket);
       const verdict = node.name === "pr-exists" ? facts.pr !== undefined : facts.checks[node.name as CheckName];
       if (verdict === undefined) return { result: "inconclusive", why: `no fact for ${node.name}` };
@@ -210,6 +219,29 @@ class Pass {
         }
         const path = await workspace.ensure(ticket, branchName(t));
         return { result: "ok", why: t.claimed ? "already claimed" : "claimed", evidence: path };
+      }
+      case "claim-no-worktree": {
+        // Work that touches no repository (research) is claimed without a branch or worktree.
+        const t = await tracker.readTicket(ticket);
+        if (!t.claimed && !(await tracker.claim(ticket))) {
+          return { result: "fail", why: `not claimable in state ${t.state}` };
+        }
+        return { result: "ok", why: t.claimed ? "already claimed" : "claimed, no worktree" };
+      }
+      case "await-ack": {
+        const comments = (await tracker.readCommentsSince(ticket)).comments;
+        if (comments.some((c) => c.kind === "ack")) return { result: "ok", why: "a human acknowledged the findings" };
+        if ((await tracker.readTicket(ticket)).state !== "In review") await tracker.setState(ticket, "In review");
+        return { result: "running", why: "waiting for a human to acknowledge" };
+      }
+      case "escalate": {
+        const why = this.#lastFailure() ?? "nothing else in the tree could finish this ticket";
+        this.#d.log.append(ticket, {
+          run: this.#run, node: node.id, kind: "escalation", decision: "ticket sent to Needs you", why, evidence: null, result: "fail",
+          payload: { reason: why, needs: "a human to look at the ticket" },
+        });
+        await tracker.setState(ticket, "Needs you");
+        return { result: "fail", why: `escalated: ${why}` };
       }
       case "open-pr": {
         const facts = await codeHost.readFacts(ticket);
@@ -240,7 +272,8 @@ class Pass {
     const { tracker, harness, workspace, ticket } = this.#d;
     const t = await tracker.readTicket(ticket);
     if (!t.claimed) return { result: "fail", why: "claim before work: the ticket is not claimed" };
-    const worktree = await workspace.find(ticket);
+    // Research touches no repository: its worker runs in a scratch directory, never a worktree.
+    const worktree = (await workspace.find(ticket)) ?? (t.workType === "research" ? await workspace.scratch(ticket) : undefined);
     if (!worktree) return { result: "fail", why: "claim before work: the ticket has no worktree" };
 
     const session = this.#runningWorker(node.id);
@@ -260,7 +293,7 @@ class Pass {
     }
     const out = await harness.run({
       skill: node.name,
-      prompt: promptFor(t),
+      prompt: promptFor(t, this.#rejection()),
       worktree,
       model,
       effort,
@@ -271,6 +304,56 @@ class Pass {
       ...(session && { session }),
     });
     return { result: out.result, why: out.exitStatus === null ? out.why : `${out.why} (exit ${out.exitStatus})`, worker: out.sessionId, evidence: out.transcriptPath, ...(out.usageLimit && { usageLimit: out.usageLimit }) };
+  }
+
+  /** Facts that live on the ticket and the project's settings, not on the code host. Undefined for any other check. */
+  async #trackerCheck(name: string): Promise<Outcome | undefined> {
+    const { tracker, ticket } = this.#d;
+    const holds = (ok: boolean, why: string): Outcome => ({ result: ok ? "ok" : "fail", why: ok ? `${name} holds` : why });
+    switch (name) {
+      case "findings-linked": {
+        const t = await tracker.readTicket(ticket);
+        return holds(t.links.some((l) => l.title === FINDINGS_LINK), "the ticket has no findings link");
+      }
+      case "gist-filled": {
+        const comments = (await tracker.readCommentsSince(ticket)).comments;
+        return holds(comments.some((c) => c.kind === "gist" && c.body.trim() !== ""), "the ticket has no gist");
+      }
+      case "review-auto":
+        return holds(this.#d.reviewAuto === true, "review=auto is off for this project");
+      default:
+        return undefined;
+    }
+  }
+
+  async #judge(node: TreeNode & { name: string }): Promise<Outcome> {
+    const { judge, tracker, ticket } = this.#d;
+    // A judge is a gate: once it said yes, the same work is not judged again (a later pass, such as one
+    // waiting on a human, must not get a different answer). A worker running since makes it new work.
+    const records = this.#d.log.read(ticket);
+    const since = records.findLastIndex((r) => r.kind === "node-outcome" && r.payload.nodeKind === "agent");
+    const passed = records.slice(since + 1).find((r) => r.kind === "node-outcome" && r.payload.nodeKind === "judge" && r.decision === `judge ${node.name}` && r.result === "ok");
+    if (passed) return { result: "ok", why: `already judged: ${passed.why}` };
+    if (!judge) return { result: "error", why: `judge "${node.name}": no judge is configured` };
+    try {
+      const v = await judge.ask({ question: node.name, ticket: await tracker.readTicket(ticket) });
+      return { result: v.verdict ? "ok" : "fail", why: v.why };
+    } catch (e) {
+      const usageLimit = (e as { usageLimit?: UsageLimit }).usageLimit;
+      return { result: "error", why: `judge "${node.name}" failed: ${(e as Error).message}`, ...(usageLimit && { usageLimit }) };
+    }
+  }
+
+  /** Why the last failing node failed in this run, for an escalation that has no other reason. */
+  #lastFailure(): string | undefined {
+    const last = this.#d.log.read(this.#d.ticket).findLast((r) => r.run === this.#run && r.kind === "node-outcome" && r.result === "fail" && r.payload.nodeKind !== "retry");
+    return last ? `${last.node}: ${last.why}` : undefined;
+  }
+
+  /** The reason a judge gave for turning findings down, while it is still the latest verdict: the next worker must address it. */
+  #rejection(): string | undefined {
+    const last = this.#d.log.read(this.#d.ticket).findLast((r) => r.kind === "node-outcome" && r.payload.nodeKind === "judge");
+    return last?.result === "fail" ? last.why : undefined;
   }
 
   /** The worker handle from this node's latest non-superseded outcome, if that worker was still running. */
@@ -295,6 +378,15 @@ class Pass {
   }
 }
 
-function promptFor(t: Ticket): string {
-  return `${t.title}\n\n${t.body}`.trim();
+/** The title of the link a research worker puts on the ticket for its findings. */
+export const FINDINGS_LINK = "Findings";
+
+const RESEARCH_BRIEF = `Research only: write no code and commit nothing.
+Put the findings in the project's docs home, never in repo files or on a branch, and cite primary sources.
+When done, link the findings on the ticket with the title "${FINDINGS_LINK}" and post a short summary as a comment of kind "gist".`;
+
+function promptFor(t: Ticket, rejected?: string): string {
+  const brief = t.workType === "research" ? RESEARCH_BRIEF : "";
+  const redo = rejected ? `A reviewer rejected the previous findings: ${rejected}\nRevise them to address this.` : "";
+  return [`${t.title}\n\n${t.body}`.trim(), brief, redo].filter((p) => p !== "").join("\n\n");
 }

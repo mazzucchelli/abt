@@ -42,3 +42,14 @@ test("ensure after a crash that left the branch but no worktree reuses the branc
   const path = await ws.ensure("ABT-1", "feat/abt-1-x");
   assert.ok(existsSync(path));
 });
+
+test("scratch is a plain directory with no worktree or branch, and remove deletes it", async () => {
+  const { git, ws } = repo();
+  const path = await ws.scratch("ABT-2");
+  assert.ok(existsSync(path));
+  assert.equal(await ws.find("ABT-2"), undefined);
+  assert.doesNotMatch(git("worktree", "list"), /abt-2/i);
+  assert.equal(await ws.scratch("ABT-2"), path);
+  await ws.remove("ABT-2");
+  assert.ok(!existsSync(path));
+});
