@@ -3,6 +3,7 @@ import type { Workspace } from "./contract.ts";
 /** In-memory Workspace for tests. Records what happened so tests can assert on it. */
 export class FakeWorkspace implements Workspace {
   #trees = new Map<string, { path: string; branch: string }>();
+  #scratch = new Set<string>();
   readonly events: string[] = [];
 
   async ensure(ticket: string, branch: string): Promise<string> {
@@ -12,6 +13,14 @@ export class FakeWorkspace implements Workspace {
     this.#trees.set(ticket, { path, branch });
     this.events.push(`add ${ticket} ${branch}`);
     return path;
+  }
+
+  async scratch(ticket: string): Promise<string> {
+    if (!this.#scratch.has(ticket)) {
+      this.#scratch.add(ticket);
+      this.events.push(`scratch ${ticket}`);
+    }
+    return `/fake/scratch/${ticket}`;
   }
 
   async find(ticket: string): Promise<string | undefined> {
@@ -24,5 +33,6 @@ export class FakeWorkspace implements Workspace {
 
   async remove(ticket: string): Promise<void> {
     if (this.#trees.delete(ticket)) this.events.push(`remove ${ticket}`);
+    if (this.#scratch.delete(ticket)) this.events.push(`remove scratch ${ticket}`);
   }
 }

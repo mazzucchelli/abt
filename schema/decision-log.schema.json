@@ -42,7 +42,7 @@
           "payload": {
             "required": ["nodeKind"],
             "properties": {
-              "nodeKind": { "enum": ["seq", "fallback", "all", "any", "not", "retry", "timeout", "check", "script", "action", "agent"] },
+              "nodeKind": { "enum": ["seq", "fallback", "all", "any", "not", "retry", "timeout", "check", "judge", "script", "action", "agent"] },
               "worker": { "type": "string", "minLength": 1 },
               "usageLimit": {
                 "type": "object",

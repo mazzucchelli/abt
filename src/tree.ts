@@ -14,11 +14,11 @@ export type TreeNode =
   | { id: string; kind: "not"; children: [TreeNode] }
   | { id: string; kind: "retry"; max: number; children: [TreeNode] }
   | { id: string; kind: "timeout"; duration: string; ms: number; children: [TreeNode] }
-  | { id: string; kind: "check" | "script" | "action" | "agent"; name: string };
+  | { id: string; kind: "check" | "judge" | "script" | "action" | "agent"; name: string };
 
 type Raw = Record<string, unknown>;
 
-const SUPPORTED = ["seq", "fallback", "retry", "timeout", "check", "script", "all", "any", "not", "action", "agent", "use", "ensure"];
+const SUPPORTED = ["seq", "fallback", "retry", "timeout", "check", "judge", "script", "all", "any", "not", "action", "agent", "use", "ensure"];
 const KNOWN = ["seq", "fallback", "retry", "timeout", "check", "script", "judge", "all", "any", "not", "action", "agent", "use", "ensure"];
 
 interface Ctx {
@@ -121,7 +121,7 @@ function build(raw: Raw, path: string, ctx: Ctx, forcedId?: string): TreeNode {
       ],
     };
   }
-  return { id, kind: kind as "check" | "script" | "action" | "agent", name: raw[kind] as string };
+  return { id, kind: kind as "check" | "judge" | "script" | "action" | "agent", name: raw[kind] as string };
 }
 
 /** Replace a `use` node with its subtree, parameters filled in and validated. */

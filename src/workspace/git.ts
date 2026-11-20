@@ -1,5 +1,5 @@
 import { execFile } from "node:child_process";
-import { existsSync } from "node:fs";
+import { existsSync, mkdirSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { promisify } from "node:util";
 import type { Workspace } from "./contract.ts";
@@ -25,20 +25,32 @@ export class GitWorkspace implements Workspace {
     return path;
   }
 
+  /** `<worktreesDir>/.scratch/<ticket>`: a plain directory, outside every repository's history. */
+  async scratch(ticket: string): Promise<string> {
+    const path = join(this.#dir, ".scratch", this.#name(ticket));
+    mkdirSync(path, { recursive: true });
+    return path;
+  }
+
   async find(ticket: string): Promise<string | undefined> {
     const path = this.#path(ticket);
     return existsSync(path) ? path : undefined;
   }
 
   async remove(ticket: string): Promise<void> {
+    rmSync(join(this.#dir, ".scratch", this.#name(ticket)), { recursive: true, force: true });
     const path = this.#path(ticket);
     if (existsSync(path)) await this.#git("worktree", "remove", "--force", path);
     await this.#git("worktree", "prune");
   }
 
   #path(ticket: string): string {
+    return join(this.#dir, this.#name(ticket));
+  }
+
+  #name(ticket: string): string {
     if (!/^[A-Za-z0-9._-]+$/.test(ticket)) throw new Error(`invalid ticket id ${JSON.stringify(ticket)}`);
-    return join(this.#dir, ticket);
+    return ticket;
   }
 
   async #git(...args: string[]): Promise<string> {

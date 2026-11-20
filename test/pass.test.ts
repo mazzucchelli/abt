@@ -257,10 +257,11 @@ test("a pass over a ticket records outcomes at the clock's time, one record per 
   assert.ok(recs.every((r) => r.kind === "node-outcome" && r.timestamp === "2026-01-01T00:00:00.000Z"));
 });
 
-test("node kinds this runner does not evaluate yet are rejected before anything runs", async () => {
+test("a judge node without a configured judge is an error, never a guessed verdict", async () => {
   const w = await world();
-  await assert.rejects(() => w.pass("judge: is it fine?"), /judge/);
-  assert.deepEqual(w.log.read(w.ticket), []);
+  const r = await w.pass("judge: is it fine?");
+  assert.equal(r.result, "error");
+  assert.match(w.records().root!.why, /no judge is configured/);
 });
 
 test("a worker is refused before the ticket is claimed", async () => {
