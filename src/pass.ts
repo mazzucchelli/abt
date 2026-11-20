@@ -1,10 +1,13 @@
 import type { CodeHost } from "./codehost/contract.ts";
 import type { CheckName } from "./codehost/contract.ts";
-import type { HarnessAdapter } from "./harness/contract.ts";
+import type { FeedbackConfig, HarnessAdapter } from "./harness/contract.ts";
 import type { DecisionRecord, Result } from "./log/record.ts";
 import type { DecisionLog } from "./log/store.ts";
 import { parseTree, type TreeNode } from "./tree.ts";
-import type { Tracker } from "./tracker/contract.ts";
+import { gradeFor, PROFILES } from "./routing.ts";
+import type { Ticket, Tracker } from "./tracker/contract.ts";
+import { branchName } from "./workspace/branch.ts";
+import type { Workspace } from "./workspace/contract.ts";
 
 export interface PassDeps {
   /** Behavior-tree YAML. */
@@ -13,8 +16,14 @@ export interface PassDeps {
   tracker: Tracker;
   codeHost: CodeHost;
   harness: HarnessAdapter;
+  workspace: Workspace;
   log: DecisionLog;
   newId: () => string;
+  /** Run ID to stamp on records; defaults to a fresh one. Lets several trees share one run. */
+  run?: string;
+  /** Where the tree came from, for diagnostics. */
+  file?: string;
+  feedback?: FeedbackConfig;
 }
 
 export interface PassResult {
@@ -35,8 +44,8 @@ interface Outcome {
  * tree, the world's facts and the ticket's decision-log history.
  */
 export async function runPass(deps: PassDeps): Promise<PassResult> {
-  const root = parseTree(deps.tree);
-  const run = deps.newId();
+  const root = parseTree(deps.tree, deps.file);
+  const run = deps.run ?? deps.newId();
   const history = deps.log.read(deps.ticket);
   const result = await new Pass(deps, run, history).evaluate(root);
   return { run, result };
@@ -83,34 +92,32 @@ class Pass {
   }
 
   async #leaf(node: TreeNode & { name: string }): Promise<Outcome> {
-    const { tracker, codeHost, harness, ticket } = this.#d;
+    const { tracker, codeHost, harness, workspace, ticket } = this.#d;
     if (node.kind === "check") {
       const facts = await codeHost.readFacts(ticket);
-      const verdict = facts.checks[node.name as CheckName];
+      const verdict = node.name === "pr-exists" ? facts.pr !== undefined : facts.checks[node.name as CheckName];
       if (verdict === undefined) return { result: "inconclusive", why: `no fact for ${node.name}` };
       return { result: verdict ? "ok" : "fail", why: verdict ? `${node.name} holds` : `${node.name} does not hold` };
     }
 
-    if (node.kind === "agent") {
-      const worker = this.#runningWorker(node.id);
-      const out = await harness.run({ agent: node.name, ticket, node: node.id, ...(worker && { worker }) });
-      return { result: out.result, why: out.why, worker: out.worker, evidence: `worker:${out.worker}` };
-    }
+    if (node.kind === "agent") return this.#worker(node);
 
     switch (node.name) {
       case "claim": {
         const t = await tracker.readTicket(ticket);
-        if (t.claimed) return { result: "ok", why: "already claimed" };
-        return (await tracker.claim(ticket))
-          ? { result: "ok", why: "claimed" }
-          : { result: "fail", why: `not claimable in state ${t.state}` };
+        if (!t.claimed && !(await tracker.claim(ticket))) {
+          return { result: "fail", why: `not claimable in state ${t.state}` };
+        }
+        const path = await workspace.ensure(ticket, branchName(t));
+        return { result: "ok", why: t.claimed ? "already claimed" : "claimed", evidence: path };
       }
       case "open-pr": {
         const facts = await codeHost.readFacts(ticket);
-        if (facts.pr) return { result: "ok", why: "PR already open", evidence: facts.pr };
-        const url = await codeHost.openPr(ticket);
-        await tracker.attachLink(ticket, { title: "Pull request", url });
-        return { result: "ok", why: "opened PR", evidence: url };
+        const t = await tracker.readTicket(ticket);
+        const url = facts.pr ?? (await codeHost.openPr(ticket));
+        if (!t.links.some((l) => l.url === url)) await tracker.attachLink(ticket, { title: "Pull request", url });
+        await tracker.setState(ticket, "In review");
+        return { result: "ok", why: facts.pr ? "PR already open" : "opened PR", evidence: url };
       }
       case "merge": {
         const facts = await codeHost.readFacts(ticket);
@@ -119,12 +126,50 @@ class Pass {
         await codeHost.merge(ticket);
         return { result: "ok", why: "merged", evidence: facts.pr };
       }
+      case "land":
+        return { result: "open", why: "land is a stub: the PR is left open" };
       case "cleanup":
-        await codeHost.cleanup(ticket);
+        await workspace.remove(ticket);
         return { result: "ok", why: "cleaned up" };
       default:
         return { result: "fail", why: `unknown action "${node.name}"` };
     }
+  }
+
+  async #worker(node: TreeNode & { name: string }): Promise<Outcome> {
+    const { tracker, harness, workspace, ticket } = this.#d;
+    const t = await tracker.readTicket(ticket);
+    if (!t.claimed) return { result: "fail", why: "claim before work: the ticket is not claimed" };
+    const worktree = await workspace.find(ticket);
+    if (!worktree) return { result: "fail", why: "claim before work: the ticket has no worktree" };
+
+    const session = this.#runningWorker(node.id);
+    const { grade, why: gradeWhy } = gradeFor(t);
+    const { model, effort } = PROFILES[grade];
+    if (!session) {
+      this.#d.log.append(ticket, {
+        run: this.#run,
+        node: node.id,
+        kind: "routing",
+        decision: `route ${grade} to ${model} at ${effort}`,
+        why: gradeWhy,
+        evidence: null,
+        result: "ok",
+        payload: { grade, model, effort },
+      });
+    }
+    const out = await harness.run({
+      skill: node.name,
+      prompt: promptFor(t),
+      worktree,
+      model,
+      effort,
+      feedback: this.#d.feedback ?? { commands: [] },
+      ticket,
+      node: node.id,
+      ...(session && { session }),
+    });
+    return { result: out.result, why: out.exitStatus === null ? out.why : `${out.why} (exit ${out.exitStatus})`, worker: out.sessionId, evidence: out.transcriptPath };
   }
 
   /** The worker handle from this node's latest non-superseded outcome, if that worker was still running. */
@@ -147,4 +192,8 @@ class Pass {
       payload: { nodeKind: node.kind, ...(o.worker && { worker: o.worker }) },
     });
   }
+}
+
+function promptFor(t: Ticket): string {
+  return `${t.title}\n\n${t.body}`.trim();
 }

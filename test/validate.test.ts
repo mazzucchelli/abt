@@ -40,7 +40,7 @@ seq:
 
 test("reports an unknown check with a suggestion", () => {
   assert.deepEqual(messages("check: branch-up-to-dat\n"), [
-    'tree.yaml:1:8 unknown check "branch-up-to-dat" (did you mean "branch-up-to-date"? known: branch-up-to-date, required-checks-green, diff-size, trees-valid, feedback-check)',
+    'tree.yaml:1:8 unknown check "branch-up-to-dat" (did you mean "branch-up-to-date"? known: branch-up-to-date, required-checks-green, diff-size, trees-valid, feedback-check, pr-exists)',
   ]);
 });
 
@@ -91,7 +91,7 @@ test("rejects unknown nodes and keys, and malformed YAML", () => {
 });
 
 test("does not suggest when nothing is close", () => {
-  assert.deepEqual(messages("check: zzzzzzzzzz\n"), ['tree.yaml:1:8 unknown check "zzzzzzzzzz" (known: branch-up-to-date, required-checks-green, diff-size, trees-valid, feedback-check)']);
+  assert.deepEqual(messages("check: zzzzzzzzzz\n"), ['tree.yaml:1:8 unknown check "zzzzzzzzzz" (known: branch-up-to-date, required-checks-green, diff-size, trees-valid, feedback-check, pr-exists)']);
 });
 
 test("every example tree under docs/ is valid", async () => {

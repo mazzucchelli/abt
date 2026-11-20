@@ -5,6 +5,7 @@ import type { CodeHostFacts } from "./codehost/contract.ts";
 import { FakeHarness, type ScriptedOutcome } from "./harness/fake.ts";
 import type { LifecycleState } from "./tracker/contract.ts";
 import { InMemoryTracker } from "./tracker/fake.ts";
+import { FakeWorkspace } from "./workspace/fake.ts";
 
 /**
  * A fake world described in JSON, for `abt run --world`. Tickets are created in order as
@@ -21,6 +22,7 @@ export interface FakeWorld {
   tracker: InMemoryTracker;
   codeHost: FakeCodeHost;
   harness: FakeHarness;
+  workspace: FakeWorkspace;
   clock: FakeClock;
 }
 
@@ -35,5 +37,5 @@ export async function loadFakeWorld(path: string): Promise<FakeWorld> {
   for (const [ticket, facts] of Object.entries(file.codeHost ?? {})) codeHost.setFacts(ticket, facts);
   const harness = new FakeHarness();
   for (const [agent, outcomes] of Object.entries(file.harness ?? {})) harness.script(agent, ...outcomes);
-  return { tracker, codeHost, harness, clock: new FakeClock(file.now) };
+  return { tracker, codeHost, harness, workspace: new FakeWorkspace(), clock: new FakeClock(file.now) };
 }
