@@ -9,6 +9,8 @@ export class FakeCodeHost implements CodeHost, PrHost {
   beforeMerge?: (ticket: string) => void;
   /** Every merge that went through, with the head it matched. */
   readonly merges: { ticket: string; sha: string }[] = [];
+  /** Every PR closed unmerged, by ticket. */
+  readonly closed: string[] = [];
   /** Every status posted, in order. */
   readonly statuses: { sha: string; status: CommitStatus }[] = [];
 
@@ -54,6 +56,14 @@ export class FakeCodeHost implements CodeHost, PrHost {
     if (body !== undefined) this.prBodies.set(ticket, body);
     f.pr ??= `https://fake.host/${ticket}/pr/1`;
     return f.pr;
+  }
+
+  async closePr(ticket: string): Promise<void> {
+    const f = this.#get(ticket);
+    if (f.merged) throw new Error(`${ticket}: the PR is merged and cannot be closed`);
+    if (f.pr === undefined) return;
+    delete f.pr;
+    this.closed.push(ticket);
   }
 
   async merge(ticket: string, opts: { matchHeadSha: string }): Promise<void> {

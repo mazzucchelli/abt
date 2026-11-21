@@ -162,3 +162,26 @@ test("a worker marks its ticket blocked with abt log append", () => {
   });
   assert.notEqual(empty.status, 0);
 });
+
+test("a worker's retype is refused and turned into an escalated ask-point", () => {
+  const { file } = setup();
+  const worker = spawnSync("bin/abt", ["log", "append", "T-1"], {
+    encoding: "utf8",
+    input: JSON.stringify({
+      run: "run-1", node: "implement/0", kind: "retype", decision: "retyped implement to research", why: "this is a question, not a change",
+      evidence: null, result: "ok", payload: { by: "worker", from: "implement", to: "research" },
+    }),
+    env: { ...process.env, ABT_HOME: file("X").replace(/\/log\/X\.jsonl$/, ""), ABT_ROLE: "worker", ABT_TICKET: "T-1" },
+  });
+  assert.equal(worker.status, 1);
+  assert.match(worker.stderr, /only the owner can retype/);
+  const records = readFileSync(file("T-1"), "utf8").trim().split("\n").map((l) => JSON.parse(l));
+  assert.equal(records.length, 1, "the retype itself is not recorded");
+  assert.equal(records[0].kind, "ask-point");
+  assert.equal(records[0].run, "run-1");
+  assert.equal(records[0].result, "open");
+  assert.equal(records[0].payload.handling, "escalated");
+  assert.equal(records[0].payload.reversible, false);
+  assert.equal(records[0].payload.retype, "research");
+  assert.match(records[0].payload.question, /research/);
+});

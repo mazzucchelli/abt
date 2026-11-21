@@ -17,6 +17,8 @@ import { policyProblems } from "./landing/policy.ts";
 import { primaryCommand } from "./primary/cli.ts";
 import { upgradeCommand } from "./install/cli.ts";
 import { selfTestCommand } from "./install/selftest.ts";
+import { retypeAskPoint } from "./retype.ts";
+import { WORK_TYPES, type WorkType } from "./tracker/contract.ts";
 
 const STUBS = ["onboard"];
 const USAGE = `usage: abt <command>
@@ -104,6 +106,21 @@ function logCommand(args: string[]): number {
     if (sub === "append" && ticket) {
       const input = JSON.parse(readFileSync(0, "utf8")) as RecordInput;
       const denied = workerLogViolation(process.env, ticket, input);
+      if (denied && input.kind === "retype" && process.env.ABT_ROLE === "worker" && (!process.env.ABT_TICKET || process.env.ABT_TICKET === ticket)) {
+        // Only the human retypes a ticket: the worker's attempt becomes an ask-point that always escalates.
+        const to = input.payload?.to as WorkType | undefined;
+        const from = input.payload?.from as WorkType | undefined;
+        if (to && (WORK_TYPES as readonly string[]).includes(to)) {
+          const a = retypeAskPoint(ticket, from && (WORK_TYPES as readonly string[]).includes(from) ? from : undefined, to);
+          log.append(ticket, {
+            run: input.run, node: input.node ?? null, kind: "ask-point", decision: `${a.handling}: ${a.question}`,
+            why: "only the owner can retype a ticket; a worker that sees a type mismatch asks instead", evidence: null, result: "open",
+            payload: { question: a.question, recommended: a.recommended, reversible: a.reversible, handling: a.handling, retype: a.retype },
+          });
+          console.error("abt: only the owner can retype a ticket; your retype was refused and raised as an ask-point instead");
+          return 1;
+        }
+      }
       if (denied) {
         console.error(`abt: ${denied}`);
         return 1;

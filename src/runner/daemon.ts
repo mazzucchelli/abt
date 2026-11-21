@@ -16,6 +16,7 @@ import { listenForNudges } from "./socket.ts";
 import type { Workers } from "./workers.ts";
 import { sweepWorktrees, type OrphanReport } from "./worktrees.ts";
 import { updateOpenBranches } from "../upkeep.ts";
+import { pendingRetype } from "../retype.ts";
 import type { Workspace } from "../workspace/contract.ts";
 import type { WorkerEnvs } from "../workspace/env.ts";
 import type { Notifier } from "../notify/contract.ts";
@@ -375,6 +376,16 @@ export class Runner {
   }
 
   /**
+   * Only the human retypes a ticket mid-run. When the tracker's type no longer matches the type the run is on,
+   * the worker is stopped before the pass applies the retype; an `error` outcome counts no attempt against it.
+   */
+  async #stopOnRetype(project: RunnerProject, ticket: string): Promise<void> {
+    const facts = ticketFacts(project.log.read(ticket));
+    if (!facts.running || !(await pendingRetype(project.tracker, project.log, ticket))) return;
+    await this.#stopWorker(project, ticket, facts, "error", "the owner retyped the ticket; its worker was stopped");
+  }
+
+  /**
    * Workers left running by a runner that died are killed, and the ticket is told so in its log:
    * the dead worker's node gets an `error`, which counts no attempt, so the re-run costs no retry.
    */
@@ -413,6 +424,7 @@ export class Runner {
         do {
           entry.rerun = false;
           try {
+            await this.#stopOnRetype(project, ticket);
             const r = await runTicket({ ...project.deps(ticket), keepFailed: this.#d.clock });
             this.#d.store.set(key, { status: r.terminal || r.result === "skipped" ? "released" : "running", since: this.#d.clock.now().toISOString() });
             if (r.terminal && r.result === "ok") await this.#afterLanding(project, ticket);
