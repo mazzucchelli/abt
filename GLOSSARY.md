@@ -74,9 +74,9 @@ Domain terms for the AI workflow. Definitions only, no implementation detail.
 
 **Principle index**: The short always-loaded list of every principle's name and trigger, delivered to workers through an appended system-prompt file, never through a project's `CLAUDE.md`. An agent reads a principle's file only when its trigger fires.
 
-**Procedure**: A multi-step process for one kind of task, with a goal, ordered steps and an exit, stored as a skill file. A behavior tree's agent action hands one to a worker as its task input. It is how, step by step; a principle is only a constraint on how the steps are done.
+**Procedure**: A multi-step process for one kind of task, with a goal, ordered steps and an exit, stored as a skill file that is hidden from the human's command menu, so the runner starts a worker on it by name. A behavior tree's agent action hands one to a worker as its task input. There is one version of each, never a separate worker copy: where it would ask the human, a worker raises an ask-point instead. It is how, step by step; a principle is only a constraint on how the steps are done.
 
-**Command**: A skill the human invokes by name in an interactive session to start something, such as enqueueing a ticket. The runner starting a worker on a procedure is not a command.
+**Command**: A skill the human invokes by name in an interactive session to start something, such as enqueueing a ticket. It is often a thin wrapper that runs a procedure with the human, and the commands are the only skills in the `/abt:` menu. The runner starting a worker on a procedure is not a command.
 
 **Provenance map**: The record, per forked skill, of where it came from (upstream repo and path, pinned commit, license), whether it is verbatim, modified or original, and how it diverges. It lets an agent diff against upstream later.
 
