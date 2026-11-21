@@ -13,7 +13,7 @@ import { DEFAULT_SCRIPT_TIMEOUT_MS, runScript } from "./script.ts";
 import { decidedAskPointsSection } from "./escalation.ts";
 import { routeWorker, type RoutingDeps } from "./routing.ts";
 import type { Ticket, Tracker } from "./tracker/contract.ts";
-import { branchName } from "./workspace/branch.ts";
+import { branchFor } from "./workspace/branch.ts";
 import type { Workspace } from "./workspace/contract.ts";
 import type { WorkerEnvs } from "./workspace/env.ts";
 import { openConflict } from "./upkeep.ts";
@@ -249,7 +249,7 @@ class Pass {
         if (!t.claimed && !(await tracker.claim(ticket))) {
           return { result: "fail", why: `not claimable in state ${t.state}` };
         }
-        const path = await workspace.ensure(ticket, branchName(t));
+        const path = await workspace.ensure(ticket, branchFor(t, this.#d.log.read(ticket)));
         return { result: "ok", why: t.claimed ? "already claimed" : "claimed", evidence: path };
       }
       case "claim-no-worktree": {

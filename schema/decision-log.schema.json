@@ -74,6 +74,7 @@
               "failure": { "type": "string", "minLength": 1 },
               "summarised": { "type": "boolean" },
               "askAgain": { "type": "boolean" },
+              "workType": { "enum": ["implement", "research", "spike", "bootstrap"] },
               "reasons": { "type": "array", "items": { "type": "string" } }
             },
             "additionalProperties": false
@@ -112,7 +113,8 @@
               "question": { "type": "string", "minLength": 1 },
               "recommended": { "type": "string", "minLength": 1 },
               "reversible": { "type": "boolean" },
-              "handling": { "enum": ["decided", "escalated"] }
+              "handling": { "enum": ["decided", "escalated"] },
+              "retype": { "enum": ["implement", "research", "spike", "bootstrap"] }
             },
             "additionalProperties": false
           }
@@ -141,10 +143,14 @@
       "then": {
         "properties": {
           "payload": {
-            "required": ["from", "to"],
+            "required": ["by", "from", "to"],
             "properties": {
+              "by": { "type": "string", "minLength": 1 },
               "from": { "enum": ["implement", "research", "spike", "bootstrap"] },
-              "to": { "enum": ["implement", "research", "spike", "bootstrap"] }
+              "to": { "enum": ["implement", "research", "spike", "bootstrap"] },
+              "branch": { "type": "string", "minLength": 1 },
+              "pr": { "type": "string", "minLength": 1 },
+              "tier": { "enum": ["low", "medium", "high"] }
             },
             "additionalProperties": false
           }

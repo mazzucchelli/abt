@@ -4,7 +4,7 @@ import type { DecisionLog } from "./log/store.ts";
 import type { Notifier } from "./notify/contract.ts";
 import { ticketFacts } from "./runner/scheduler.ts";
 import type { Ticket, Tracker } from "./tracker/contract.ts";
-import { branchName } from "./workspace/branch.ts";
+import { branchFor } from "./workspace/branch.ts";
 import type { Workspace } from "./workspace/contract.ts";
 
 export interface UpkeepDeps {
@@ -57,7 +57,7 @@ async function updateOne(d: UpkeepDeps, t: Ticket, run: string): Promise<UpkeepO
   if (ticketFacts(records).running) return { ticket: t.id, status: "worker-running", detail: "its worker is running and keeps its worktree" };
   let res;
   try {
-    res = await d.workspace.update(t.id, branchName(t), d.defaultBranch);
+    res = await d.workspace.update(t.id, branchFor(t, records), d.defaultBranch);
   } catch (e) {
     res = { status: "failed" as const, detail: (e as Error).message };
   }

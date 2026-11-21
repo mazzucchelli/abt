@@ -16,6 +16,8 @@ Domain terms for the AI workflow. Definitions only, no implementation detail.
 
 **Work type**: The kind of a ticket (for example implement or research), chosen at intake; it selects which behavior tree runs. There are four: implement (ends in a merged PR), research (ends in a doc, no code), spike (throwaway code that answers a question, never merged; prototypes are spikes with a human in the loop) and bootstrap (adds missing verification tooling). A ticket has exactly one.
 
+**Retype**: Changing a ticket's work type mid-run. Only the human can do it; a worker that sees a type mismatch raises an ask-point instead. The ticket's risk tier carries over and never drops.
+
 **Inferred work type**: A work type the primary agent guessed from the request because no label, command or entry point named one. It is written back to the tracker marked "inferred". An explicit label or command beats the type the entry point implies, which beats an inferred one. Bootstrap is never inferred.
 
 **Collision**: Two tickets that likely touch the same files, found by the file or module paths their text names. The primary agent asks whether to add a blocker edge; it never adds one unasked.

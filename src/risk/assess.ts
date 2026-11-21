@@ -210,6 +210,8 @@ export async function assessTicket(deps: RiskDeps, req: AssessRequest): Promise<
     payload: {
       tier, floor, moment: req.moment, reasons,
       ...(judged && { judged }), ...(failure && { failure }), ...(summarised && { summarised }), ...(askAgain && { askAgain }),
+      // The type the ticket entered its run with: a later retype is a change from it.
+      ...(req.moment === "intake" && ticket.workType && { workType: ticket.workType }),
     },
   });
   if (askAgain) {

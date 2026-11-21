@@ -39,6 +39,8 @@ export interface CodeHost {
   readFacts(ticket: string): Promise<CodeHostFacts>;
   /** Opens a PR for the ticket's branch and returns its URL. The body, when given, is the start of the PR description. */
   openPr(ticket: string, body?: string): Promise<string>;
+  /** Closes the ticket's open PR without merging it. Does nothing if there is none; refuses a merged one. */
+  closePr(ticket: string): Promise<void>;
   /** Squash-merges the PR, only if its head is still `matchHeadSha`; otherwise throws HeadMovedError and merges nothing. */
   merge(ticket: string, opts: { matchHeadSha: string }): Promise<void>;
 }

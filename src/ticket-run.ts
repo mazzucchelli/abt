@@ -5,8 +5,9 @@ import type { DecisionRecord, Result } from "./log/record.ts";
 import { assessTicket, effectiveTier, type RiskDeps } from "./risk/assess.ts";
 import { tierFor } from "./routing.ts";
 import { ticketFacts } from "./runner/scheduler.ts";
-import { postAskPoint, resumeFromReplies } from "./escalation.ts";
+import { escalate as raiseAskPoint, postAskPoint, resumeFromReplies } from "./escalation.ts";
 import { postSummary } from "./summary.ts";
+import { applyRetype, unraisedRetypeAsk } from "./retype.ts";
 import type { Notifier } from "./notify/contract.ts";
 import type { Clock } from "./clock.ts";
 import { isScalar, parseDocument, visit } from "yaml";
@@ -49,7 +50,21 @@ type Name = (typeof TREES)[number];
 export async function runTicket(deps: TicketRunDeps): Promise<TicketRunResult> {
   const { tracker, workspace, log, ticket } = deps;
   const run = deps.newId();
+  // A retype by the owner comes first: it replaces the tree this ticket runs, whatever state it waits in.
+  await applyRetype(deps, run);
   let first = await tracker.readTicket(ticket);
+  // A worker that sees a type mismatch can only ask: the ask-point it left goes to the human, once.
+  const asked = unraisedRetypeAsk(log.read(ticket));
+  if (asked && first.state !== "Needs you" && first.state !== "Done" && first.state !== "Abandoned") {
+    await raiseAskPoint(
+      { tracker, log, ...(deps.notifier && { notifier: deps.notifier }) },
+      {
+        ticket, run, node: asked.node, reason: "only the owner can retype a ticket",
+        askPoint: { question: String(asked.payload.question), recommended: String(asked.payload.recommended), evidence: log.path(ticket), reversible: false },
+      },
+    );
+    return { run, result: "skipped", terminal: false };
+  }
   if (first.state === "Needs you") {
     // The human loop: only the owner's reply resumes a ticket, and silence only earns a reminder.
     const r = await resumeFromReplies(
@@ -191,10 +206,11 @@ async function assessOnce(deps: TicketRunDeps, run: string): Promise<void> {
   if (deps.risk) {
     await assessTicket({ log, tracker, ...deps.risk }, { ticket, run, moment: "intake" });
   } else {
-    const { tier, why } = tierFor(await tracker.readTicket(ticket));
+    const t = await tracker.readTicket(ticket);
+    const { tier, why } = tierFor(t);
     log.append(ticket, {
       run, node: null, kind: "risk-assessment", decision: `risk tier ${tier}`, why, evidence: null, result: "ok",
-      payload: { tier, reasons: [why] },
+      payload: { tier, reasons: [why], ...(t.workType && { workType: t.workType }) },
     });
   }
 }
