@@ -16,6 +16,12 @@ Domain terms for the AI workflow. Definitions only, no implementation detail.
 
 **Work type**: The kind of a ticket (for example implement or research), chosen at intake; it selects which behavior tree runs. There are four: implement (ends in a merged PR), research (ends in a doc, no code), spike (throwaway code that answers a question, never merged; prototypes are spikes with a human in the loop) and bootstrap (adds missing verification tooling). A ticket has exactly one.
 
+**Inferred work type**: A work type the primary agent guessed from the request because no label, command or entry point named one. It is written back to the tracker marked "inferred". An explicit label or command beats the type the entry point implies, which beats an inferred one. Bootstrap is never inferred.
+
+**Collision**: Two tickets that likely touch the same files, found by the file or module paths their text names. The primary agent asks whether to add a blocker edge; it never adds one unasked.
+
+**Blocker edge**: A tracker relation that makes one ticket wait for another to merge before it is dispatched.
+
 **Lifecycle state**: The coarse, human-visible state of a ticket in the tracker: Todo, In progress, In review, Needs you, Done or Abandoned.
 
 **Harness**: The agent program a worker runs inside (for example Claude Code, opencode or Codex). Behavior trees never name one.

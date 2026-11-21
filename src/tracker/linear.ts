@@ -274,5 +274,14 @@ export async function createLinearTracker(config: TrackerConfig, opts: LinearOpt
         removedLabelIds: RISK_TIERS.filter((r) => r !== tier).map((r) => labelIds.get(names[r])!),
       });
     },
+
+    async addBlocker(id, blocker) {
+      if (toTicket(await readIssue(id)).blockedBy.includes(blocker)) return;
+      const r = await gql<{ issueRelationCreate: { success: boolean } }>(
+        `mutation($input: IssueRelationCreateInput!) { issueRelationCreate(input: $input) { success } }`,
+        { input: { issueId: blocker, relatedIssueId: id, type: "blocks" } },
+      );
+      if (!r.issueRelationCreate.success) throw new Error(`Linear refused to make ${blocker} block ${id}`);
+    },
   };
 }
