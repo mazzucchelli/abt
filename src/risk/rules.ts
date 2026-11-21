@@ -8,12 +8,20 @@ export interface RiskRule {
 }
 
 /** The project's risk map: extra rules and the size thresholds. Part of the merge policy. */
+/** An explicit pairing: files matching `glob` are covered by these checks. */
+export interface PairingOverride {
+  glob: string;
+  checks: string[];
+}
+
 export interface RiskMap {
   rules: RiskRule[];
   /** Added plus removed lines above which a diff is at least medium. */
   maxLines: number;
   /** Changed files above which a diff is at least medium. */
   maxFiles: number;
+  /** Explicit pairings of modules to the checks that cover them, beyond the naming convention. */
+  pairing: PairingOverride[];
 }
 
 export const DEFAULT_MAX_LINES = 400;
@@ -35,12 +43,31 @@ export const DEFAULT_RULES: RiskRule[] = [
   ...medium("tool config", "**/tsconfig*.json", "**/.eslintrc*", "**/eslint.config.*", "**/.prettierrc*", "**/prettier.config.*", "**/biome.json", "**/vite.config.*", "**/jest.config.*", "**/webpack.config.*", "**/.editorconfig", "**/.gitignore", "**/.nvmrc", "**/.node-version"),
   ...medium("generated file", "**/generated/**", "**/gen/**", "**/*.generated.*", "**/*.gen.*", "**/*.min.js", "**/*.pb.go"),
   ...medium("agent instruction file", "**/CLAUDE.md", "**/AGENTS.md", "**/GEMINI.md", ".claude/**", ".agents/**", ".cursor/rules/**"),
+  ...medium("baseline update", "**/__snapshots__/**", "**/*.snap", "**/*-snapshots/**", "**/__image_snapshots__/**", "**/baselines/**"),
   ...medium("script", "scripts/**", "**/scripts/**", "**/*.sh", "bin/**"),
 ];
 
 /** Dependency manifests: touching one is at least medium; a new or major dependency is high. */
 const MANIFESTS = ["package.json", "Cargo.toml", "go.mod", "pyproject.toml", "Gemfile", "composer.json", "pom.xml", "build.gradle"];
 const isManifest = (path: string) => MANIFESTS.includes(basename(path)) || /^requirements.*\.txt$/.test(basename(path));
+
+/** Why a path can never be low, whatever a project agrees: dependencies, CI/config, migrations. */
+const FIXED_REASONS = new Set(["lockfile", "tool config", "CI, deploy or infra", "schema or migration"]);
+
+/** The rules the runner fixes: a project's merge policy can add to them, never lower them. */
+export const FIXED_RULES: RiskRule[] = [
+  ...DEFAULT_RULES.filter((r) => FIXED_REASONS.has(r.reason)),
+  ...MANIFEST_RULES(),
+];
+
+function MANIFEST_RULES(): RiskRule[] {
+  return [...MANIFESTS.map((m) => `**/${m}`), "**/requirements*.txt"].map((glob) => ({ glob, tier: "medium" as RiskTier, reason: "dependency manifest" }));
+}
+
+/** The fixed reason a path is never low, or undefined. */
+export function fixedReason(path: string): string | undefined {
+  return FIXED_RULES.find((r) => matches(r.glob, path))?.reason;
+}
 
 const TEST_GLOBS = ["test/**", "tests/**", "**/test/**", "**/tests/**", "**/__tests__/**", "**/*.test.*", "**/*.spec.*"];
 
@@ -78,6 +105,8 @@ export interface FloorInput {
   scope?: string[];
   /** Touched surfaces with no covered check, or missing required evidence. */
   evidenceGaps?: string[];
+  /** Fixed floors the verification contract found: each is at least medium, whatever the project agrees. */
+  fixedFloors?: { path: string; reason: string }[];
   /** At intake there is no diff: files are only paths the ticket names, so whole-change rules are skipped. */
   intake?: boolean;
 }
@@ -91,7 +120,7 @@ export function raise(tier: RiskTier): RiskTier {
   return RISK_TIERS[Math.min(RISK_TIERS.indexOf(tier) + 1, RISK_TIERS.length - 1)]!;
 }
 
-export const defaultRiskMap = (): RiskMap => ({ rules: [], maxLines: DEFAULT_MAX_LINES, maxFiles: DEFAULT_MAX_FILES });
+export const defaultRiskMap = (): RiskMap => ({ rules: [], maxLines: DEFAULT_MAX_LINES, maxFiles: DEFAULT_MAX_FILES, pairing: [] });
 
 /** Reads a project's risk map from parsed config (for example the merge policy's front matter). */
 export function parseRiskMap(raw: unknown): RiskMap {
@@ -99,7 +128,7 @@ export function parseRiskMap(raw: unknown): RiskMap {
   if (raw === undefined || raw === null) return map;
   if (typeof raw !== "object" || Array.isArray(raw)) throw new Error("risk map must be an object");
   const o = raw as Record<string, unknown>;
-  for (const k of Object.keys(o)) if (!["rules", "maxLines", "maxFiles"].includes(k)) throw new Error(`risk map: unknown key "${k}"`);
+  for (const k of Object.keys(o)) if (!["rules", "maxLines", "maxFiles", "pairing"].includes(k)) throw new Error(`risk map: unknown key "${k}"`);
   if (o.rules !== undefined) {
     if (!Array.isArray(o.rules)) throw new Error("risk map: rules must be a list");
     map.rules = o.rules.map((r, i) => {
@@ -107,6 +136,15 @@ export function parseRiskMap(raw: unknown): RiskMap {
       if (typeof x?.glob !== "string" || x.glob === "") throw new Error(`risk map: rules[${i}].glob must be a non-empty string`);
       if (!RISK_TIERS.includes(x.tier as RiskTier)) throw new Error(`risk map: rules[${i}].tier must be one of ${RISK_TIERS.join(", ")}`);
       return { glob: x.glob, tier: x.tier as RiskTier, reason: typeof x.reason === "string" ? x.reason : `risk map: ${x.glob}` };
+    });
+  }
+  if (o.pairing !== undefined) {
+    if (!Array.isArray(o.pairing)) throw new Error("risk map: pairing must be a list");
+    map.pairing = o.pairing.map((p, i) => {
+      const x = p as Record<string, unknown>;
+      if (typeof x?.glob !== "string" || x.glob === "") throw new Error(`risk map: pairing[${i}].glob must be a non-empty string`);
+      if (!Array.isArray(x.checks) || x.checks.length === 0 || !x.checks.every((c) => typeof c === "string" && c !== "")) throw new Error(`risk map: pairing[${i}].checks must be a non-empty list of paths`);
+      return { glob: x.glob, checks: x.checks as string[] };
     });
   }
   for (const k of ["maxLines", "maxFiles"] as const) {
@@ -244,6 +282,7 @@ export function computeFloor(input: FloorInput, map: RiskMap = defaultRiskMap())
     if (lines > map.maxLines) hits.push({ path: null, tier: "medium", reason: `${lines} changed lines (over ${map.maxLines})` });
     if (input.files.length > map.maxFiles) hits.push({ path: null, tier: "medium", reason: `${input.files.length} changed files (over ${map.maxFiles})` });
   }
+  for (const f of input.fixedFloors ?? []) hits.push({ path: f.path === "(visual diff)" ? null : f.path, tier: "medium", reason: `${f.reason} is never low` });
   for (const gap of input.evidenceGaps ?? []) hits.push({ path: null, tier: "medium", reason: `evidence gap: ${gap}` });
   return { floor: maxTier(...hits.map((h) => h.tier)), hits };
 }

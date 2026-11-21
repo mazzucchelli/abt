@@ -161,7 +161,10 @@
               "by": { "type": "string", "minLength": 1 },
               "text": { "type": "string" },
               "comment": { "type": "string", "minLength": 1 },
-              "reminder": { "type": "boolean" }
+              "reminder": { "type": "boolean" },
+              "pointers": { "type": "array", "items": { "type": "string", "pattern": "^https?://\\S+$" } },
+              "bootstrap": { "type": "string", "minLength": 1 },
+              "bootstrapKey": { "type": "string", "minLength": 1 }
             },
             "additionalProperties": false
           }

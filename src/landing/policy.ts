@@ -5,6 +5,7 @@ import { promisify } from "node:util";
 import { Ajv2020 } from "ajv/dist/2020.js";
 import { parse } from "yaml";
 import type { RiskTier } from "../tracker/contract.ts";
+import { FIXED_RULES, matches, type PairingOverride } from "../risk/rules.ts";
 
 const run = promisify(execFile);
 
@@ -22,7 +23,7 @@ export interface MergePolicy {
   /** `pr-only`: abt opens the PR and never merges it. */
   mode: "merge" | "pr-only";
   evidence?: { self_certification?: false };
-  risk_map?: { rules?: { glob: string; tier: RiskTier; reason: string }[]; max_lines?: number; max_files?: number };
+  risk_map?: { rules?: { glob: string; tier: RiskTier; reason: string }[]; pairing?: PairingOverride[]; max_lines?: number; max_files?: number };
   /** A snapshot of what the project looked like when the policy was agreed. */
   facts: { default_branch: string; captured_at?: string; [k: string]: unknown };
   /** Hash of the land tree this policy was agreed with. A different land tree blocks merging. */
@@ -42,10 +43,32 @@ export function policyProblems(source: string): string[] {
   } catch (e) {
     return [`not valid YAML: ${(e as Error).message.split("\n")[0]}`];
   }
-  if (check(data)) return [];
+  if (check(data)) return loosened(data as MergePolicy);
   return (check.errors ?? [])
     .filter((e) => e.keyword !== "if")
     .map((e) => `${e.instancePath || "/"} ${e.message ?? "invalid"}${e.keyword === "additionalProperties" ? ` (${String(e.params.additionalProperty)})` : ""}`);
+}
+
+/** Paths a glob could name for a fixed rule: the rule's own pattern read as a path, nested, and under the loosening glob's directory. */
+function samples(fixedGlob: string, loosenGlob: string): string[] {
+  const name = fixedGlob.replace(/\*\*\//g, "").replace(/\*\*/g, "x").replace(/\*/g, "x");
+  const dirPrefix = loosenGlob.slice(0, Math.max(0, loosenGlob.search(/[*?]/)));
+  return [name, `src/${name}`, `a/b/${name}`, ...(dirPrefix.endsWith("/") ? [`${dirPrefix}${name}`] : [])];
+}
+
+/**
+ * A policy can tighten the runner's fixed rules, never loosen them: a risk map rule that sets
+ * `low` on anything dependencies, CI/config or migrations cover is a problem. A rule that sets
+ * medium or high is tightening and passes.
+ */
+function loosened(policy: MergePolicy): string[] {
+  const out: string[] = [];
+  (policy.risk_map?.rules ?? []).forEach((rule, i) => {
+    if (rule.tier !== "low") return;
+    const hit = FIXED_RULES.find((fixed) => matches(fixed.glob, rule.glob) || samples(fixed.glob, rule.glob).some((path) => matches(rule.glob, path)));
+    if (hit) out.push(`/risk_map/rules/${i} would loosen a fixed rule: ${hit.reason} is never low, whatever the policy says`);
+  });
+  return out;
 }
 
 /** A place the merge policy is read from: the project's default branch, never the working tree. */

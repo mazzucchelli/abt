@@ -1,6 +1,8 @@
 import type { DecisionRecord } from "../log/record.ts";
 import type { DecisionLog } from "../log/store.ts";
 import { RISK_TIERS, type RiskTier, type Tracker } from "../tracker/contract.ts";
+import { fileBootstrap } from "./bootstrap.ts";
+import { assessCoverage, type Coverage, type CoverageInput } from "./coverage.ts";
 import {
   computeFloor, defaultRiskMap, maxTier, pathsIn, raise,
   type Diff, type FileChange, type RiskMap, type RuleHit,
@@ -67,6 +69,8 @@ export interface AssessRequest {
   /** Globs the ticket is expected to touch. */
   scope?: string[];
   evidenceGaps?: string[];
+  /** The facts the verification contract needs. Without them, coverage is not checked. */
+  coverage?: CoverageInput;
 }
 
 export interface Assessment {
@@ -82,6 +86,9 @@ export interface Assessment {
   /** A rule floor beat a human's override: the human is asked again. */
   askAgain: boolean;
   reasons: string[];
+  coverage?: Coverage;
+  /** The bootstrap ticket filed for missing tooling, when this assessment filed one. */
+  bootstrap?: string;
 }
 
 export const DEFAULT_TIMEOUT_MS = 30_000;
@@ -140,8 +147,13 @@ export async function assessTicket(deps: RiskDeps, req: AssessRequest): Promise<
   const intake = req.diff === undefined;
   const diff: Diff = req.diff ?? { files: pathsIn(`${ticket.title}\n${ticket.body}`).map((path) => ({ path, added: 0, removed: 0 })) };
 
+  const coverage = req.coverage ? assessCoverage({ ...req.coverage, pairing: [...(req.coverage.pairing ?? []), ...map.pairing] }) : undefined;
+  const evidenceGaps = [
+    ...(req.evidenceGaps ?? []),
+    ...(coverage?.gaps.map((g) => `${g.path ?? "change"}: ${g.reason}`) ?? []),
+  ];
   const { hits, floor: ruleFloor } = computeFloor(
-    { ...diff, ...(req.scope && { scope: req.scope }), ...(req.evidenceGaps && { evidenceGaps: req.evidenceGaps }), intake },
+    { ...diff, ...(req.scope && { scope: req.scope }), ...(evidenceGaps.length > 0 && { evidenceGaps }), ...(coverage && { fixedFloors: coverage.fixed }), intake },
     map,
   );
   const limit = deps.maxPatchChars ?? DEFAULT_MAX_PATCH_CHARS;
@@ -209,7 +221,8 @@ export async function assessTicket(deps: RiskDeps, req: AssessRequest): Promise<
     });
   }
   if (ticket.risk !== tier) await tracker.setRisk(req.ticket, tier);
-  return { tier, floor, moment: req.moment, hits, ...(judged && { judged }), ...(failure && { failure }), summarised, askAgain, reasons };
+  const bootstrap = coverage ? await fileBootstrap(deps, { ticket: req.ticket, run: req.run, gaps: coverage.gaps }) : undefined;
+  return { tier, floor, moment: req.moment, hits, ...(coverage && { coverage }), ...(bootstrap && { bootstrap }), ...(judged && { judged }), ...(failure && { failure }), summarised, askAgain, reasons };
 }
 
 /** A human sets the ticket's tier, up or down. Logged as theirs; the label follows. */
