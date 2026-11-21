@@ -17,7 +17,7 @@ function setup() {
   const log = new DecisionLog(mkdtempSync(join(tmpdir(), "abt-routing-")), new FakeClock(), () => `id-${++n}`);
   const ticket = (over: Partial<Ticket> = {}): Ticket => ({
     id: "ABT-1", title: "Add a thing", body: "- [ ] it works\n- [ ] it is tested\n\nTouches src/risk/a.ts", state: "In progress",
-    abt: true, claimed: true, links: [], priority: 0, createdAt: "2026-01-01T00:00:00Z", blockedBy: [], ...over,
+    abt: true, claimed: true, links: [], priority: 0, createdAt: "2026-01-01T00:00:00Z", blockedBy: [], owner: "owner", url: "https://t/ABT-1", ...over,
   });
   const append = (r: Partial<RecordInput> & Pick<RecordInput, "kind" | "payload">) =>
     log.append("ABT-1", { run: "r", node: null, decision: "d", why: "w", evidence: null, result: "ok", ...r });

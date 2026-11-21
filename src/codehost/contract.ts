@@ -20,7 +20,7 @@ export interface CodeHostFacts {
 
 export interface CodeHost {
   readFacts(ticket: string): Promise<CodeHostFacts>;
-  /** Opens a PR for the ticket's branch and returns its URL. */
-  openPr(ticket: string): Promise<string>;
+  /** Opens a PR for the ticket's branch and returns its URL. The body, when given, is the start of the PR description. */
+  openPr(ticket: string, body?: string): Promise<string>;
   merge(ticket: string): Promise<void>;
 }

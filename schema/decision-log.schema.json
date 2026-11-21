@@ -21,7 +21,8 @@
         "escalation",
         "merge",
         "pivot",
-        "blocked"
+        "blocked",
+        "note"
       ]
     },
     "decision": { "type": "string", "minLength": 1 },
@@ -126,7 +127,8 @@
             "properties": {
               "target": { "type": "string", "minLength": 1 },
               "by": { "type": "string", "minLength": 1 },
-              "value": {}
+              "value": {},
+              "comment": { "type": "string", "minLength": 1 }
             },
             "additionalProperties": false
           }
@@ -149,6 +151,23 @@
       }
     },
     {
+      "if": { "properties": { "kind": { "const": "note" } } },
+      "then": {
+        "properties": {
+          "payload": {
+            "required": ["by", "text"],
+            "properties": {
+              "by": { "type": "string", "minLength": 1 },
+              "text": { "type": "string" },
+              "comment": { "type": "string", "minLength": 1 },
+              "reminder": { "type": "boolean" }
+            },
+            "additionalProperties": false
+          }
+        }
+      }
+    },
+    {
       "if": { "properties": { "kind": { "const": "escalation" } } },
       "then": {
         "properties": {
@@ -156,7 +175,10 @@
             "required": ["reason", "needs"],
             "properties": {
               "reason": { "type": "string", "minLength": 1 },
-              "needs": { "type": "string", "minLength": 1 }
+              "needs": { "type": "string", "minLength": 1 },
+              "question": { "type": "string", "minLength": 1 },
+              "recommended": { "type": "string", "minLength": 1 },
+              "reversible": { "type": "boolean" }
             },
             "additionalProperties": false
           }

@@ -3,6 +3,8 @@ import type { CheckName, CodeHost, CodeHostFacts } from "./contract.ts";
 /** In-memory CodeHost for tests. Facts are set from outside; writes change them. */
 export class FakeCodeHost implements CodeHost {
   #facts = new Map<string, CodeHostFacts>();
+  /** The description each PR was opened with. */
+  readonly prBodies = new Map<string, string>();
 
   setFacts(ticket: string, facts: Partial<CodeHostFacts>): void {
     const cur = this.#get(ticket);
@@ -17,8 +19,9 @@ export class FakeCodeHost implements CodeHost {
     return structuredClone(this.#get(ticket));
   }
 
-  async openPr(ticket: string): Promise<string> {
+  async openPr(ticket: string, body?: string): Promise<string> {
     const f = this.#get(ticket);
+    if (body !== undefined) this.prBodies.set(ticket, body);
     f.pr ??= `https://fake.host/${ticket}/pr/1`;
     return f.pr;
   }

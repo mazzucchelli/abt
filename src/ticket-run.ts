@@ -4,6 +4,9 @@ import type { DecisionRecord, Result } from "./log/record.ts";
 import { assessTicket, type RiskDeps } from "./risk/assess.ts";
 import { tierFor } from "./routing.ts";
 import { ticketFacts } from "./runner/scheduler.ts";
+import { postAskPoint, resumeFromReplies } from "./escalation.ts";
+import { postSummary } from "./summary.ts";
+import type { Notifier } from "./notify/contract.ts";
 import { parseTree, TreeError } from "./tree.ts";
 import { LayeredTrees, resolveTree, type TreeStore } from "./trees.ts";
 
@@ -12,6 +15,10 @@ export interface TicketRunDeps extends Omit<PassDeps, "tree" | "run" | "file"> {
   plugin: TreeStore;
   /** Trees from the project's default branch; they replace plugin trees of the same name. */
   project: TreeStore;
+  /** Reaches the human when a ticket enters Needs you. Without one nothing is pushed. */
+  notifier?: Notifier;
+  /** How long a Needs you ticket may sit before the human is reminded. */
+  escalationTimeoutMs?: number;
   /** Risk assessment at intake: the classifier and the project's risk map. Without it the tier is the ticket's own, else medium. */
   risk?: Pick<RiskDeps, "classifier" | "map" | "timeoutMs" | "minConfidence" | "maxPatchChars">;
 }
@@ -35,7 +42,17 @@ type Name = (typeof TREES)[number];
 export async function runTicket(deps: TicketRunDeps): Promise<TicketRunResult> {
   const { tracker, workspace, log, ticket } = deps;
   const run = deps.newId();
-  const first = await tracker.readTicket(ticket);
+  let first = await tracker.readTicket(ticket);
+  if (first.state === "Needs you") {
+    // The human loop: only the owner's reply resumes a ticket, and silence only earns a reminder.
+    const r = await resumeFromReplies(
+      { tracker, log, ...(deps.notifier && { notifier: deps.notifier }), ...(deps.escalationTimeoutMs !== undefined && { timeoutMs: deps.escalationTimeoutMs }), cleanup: () => sweep(deps, run) },
+      { ticket, run },
+    );
+    if (r.outcome === "abandoned") return { run, result: "fail", terminal: true };
+    if (r.outcome === "waiting" || r.outcome === "reminded") return { run, result: "skipped", terminal: false };
+    first = await tracker.readTicket(ticket);
+  }
   if (first.workType === "research") return runResearch(deps, run);
   const state = first.state;
   if (state === "In review" && (await workspace.find(ticket)) !== undefined) {
@@ -169,9 +186,11 @@ function failureReason(records: DecisionRecord[], run: string, result: Result, t
 function escalate(deps: TicketRunDeps, run: string, reason: string, needs: string, evidence: string | null = null): void {
   deps.log.append(deps.ticket, {
     run, node: null, kind: "escalation", decision: "ticket sent to Needs you", why: reason, evidence, result: "fail",
-    payload: { reason, needs },
+    payload: { reason, needs, question: `The run could not finish: ${reason}`, recommended: RERUN_RECOMMENDATION, reversible: true },
   });
 }
+
+const RERUN_RECOMMENDATION = "re-run the tree";
 
 /** A tree that fails to load or breaks an invariant: Needs you with the structured error, worktree gone, no fallback. */
 async function refuse(deps: TicketRunDeps, run: string, tree: string, errors: string[]): Promise<TicketRunResult> {
@@ -187,29 +206,22 @@ async function refuse(deps: TicketRunDeps, run: string, tree: string, errors: st
   return { run, result: "fail", terminal: true };
 }
 
-/** Posts the one structured summary comment and, if asked, moves the ticket's state. */
+/** Posts the one structured summary comment and, if asked, moves the ticket's state. Entering Needs you also pushes. */
 async function finish(deps: TicketRunDeps, result: Result, moveTo?: "Needs you" | "Done"): Promise<void> {
   const { tracker, log, ticket } = deps;
-  const recs = log.read(ticket);
-  const risk = recs.findLast((r) => r.kind === "risk-assessment");
-  const route = recs.findLast((r) => r.kind === "routing");
-  const tier = String(risk?.payload.tier ?? "unknown");
-  const grade = String(route?.payload.grade ?? "none");
-  const model = String(route?.payload.model ?? "none");
-  const effort = String(route?.payload.effort ?? "none");
-  const askPoints = recs.filter((r) => r.kind === "ask-point").map((r) => ({ question: String(r.payload.question), handling: String(r.payload.handling) }));
-  const logPath = log.path(ticket);
-  const tierWhy = risk?.why ?? "no risk assessment recorded";
-  await tracker.postComment(ticket, {
-    kind: "summary",
-    body: [
-      `Run ended ${result}.`,
-      `Tier: ${tier} (${tierWhy}).`,
-      `Model: ${model} at ${effort}, grade ${grade}.`,
-      `Ask-points taken: ${askPoints.length}.`,
-      `Log: ${logPath}`,
-    ].join("\n"),
-    data: { result, tier, tierWhy, grade, model, effort, askPoints, logPath },
-  });
+  if (moveTo === "Needs you") {
+    const asked = log.read(ticket).findLast((r) => r.kind === "escalation");
+    const reason = asked?.why ?? `the run ended ${result}`;
+    await postAskPoint(tracker, ticket, {
+      question: String(asked?.payload.question ?? `The run could not finish: ${reason}`),
+      recommended: String(asked?.payload.recommended ?? RERUN_RECOMMENDATION),
+      evidence: log.path(ticket),
+      reversible: asked?.payload.reversible !== false,
+    });
+  }
+  await postSummary(deps, `Run ended ${result}.`, result);
   if (moveTo) await tracker.setState(ticket, moveTo);
+  if (moveTo === "Needs you" && deps.notifier) {
+    await deps.notifier.push({ ticket, url: (await tracker.readTicket(ticket)).url });
+  }
 }
