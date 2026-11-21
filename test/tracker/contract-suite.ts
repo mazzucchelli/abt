@@ -25,6 +25,8 @@ export function contractSuite(name: string, make: () => Promise<Tracker> | Track
     assert.equal(read.risk, "medium");
     assert.equal(read.claimed, false);
     assert.deepEqual(read.links, []);
+    assert.ok(read.owner !== "", "a ticket names its owner");
+    assert.match(read.url, /^https?:\/\//, "a ticket has a url a human can open");
   });
 
   t("setState moves a ticket between lifecycle states and listByState sees it", async (tracker) => {

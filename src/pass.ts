@@ -7,6 +7,7 @@ import type { DecisionLog } from "./log/store.ts";
 import { parseTree, type TreeNode } from "./tree.ts";
 import type { TreeStore } from "./trees.ts";
 import { DEFAULT_SCRIPT_TIMEOUT_MS, runScript } from "./script.ts";
+import { decidedAskPointsSection } from "./escalation.ts";
 import { routeWorker, type RoutingDeps } from "./routing.ts";
 import type { Ticket, Tracker } from "./tracker/contract.ts";
 import { branchName } from "./workspace/branch.ts";
@@ -173,7 +174,7 @@ class Pass {
     const reset = live.findLastIndex(
       (r) =>
         (r.kind === "node-outcome" && r.node === node.id && r.result === "ok") ||
-        (r.kind === "override" && r.payload.by !== "runner" && typeof r.payload.target === "string" && ids.has(r.payload.target)),
+        (r.kind === "override" && r.payload.by !== "runner" && typeof r.payload.target === "string" && (ids.has(r.payload.target) || OWNER_RESET_TARGETS.has(r.payload.target))),
     );
     return live.slice(reset + 1);
   }
@@ -254,7 +255,8 @@ class Pass {
       case "open-pr": {
         const facts = await codeHost.readFacts(ticket);
         const t = await tracker.readTicket(ticket);
-        const url = facts.pr ?? (await codeHost.openPr(ticket));
+        const body = decidedAskPointsSection(this.#d.log.read(ticket));
+        const url = facts.pr ?? (await codeHost.openPr(ticket, body === "" ? undefined : body));
         if (!t.links.some((l) => l.url === url)) await tracker.attachLink(ticket, { title: "Pull request", url });
         await tracker.setState(ticket, "In review");
         return { result: "ok", why: facts.pr ? "PR already open" : "opened PR", evidence: url };
@@ -316,7 +318,7 @@ class Pass {
     }
     const out = await harness.run({
       skill: node.name,
-      prompt: promptFor(t, this.#rejection()),
+      prompt: promptFor(t, this.#rejection(), this.#ownerAnswer()),
       worktree,
       model,
       effort,
@@ -379,6 +381,17 @@ class Pass {
     return last?.result === "fail" ? last.why : undefined;
   }
 
+  /** The owner's latest answer to an escalated ask-point, which the next worker must follow. */
+  #ownerAnswer(): string | undefined {
+    // An answer settles one escalation: a later escalation or an owner re-run makes it stale.
+    const records = this.#d.log.read(this.#d.ticket);
+    const at = records.findLastIndex((r) => r.kind === "override" && r.payload.target === "escalation");
+    if (at < 0 || records.slice(at + 1).some((r) => r.kind === "escalation" || (r.kind === "override" && r.payload.target === "run"))) return undefined;
+    const v = records[at]!.payload.value;
+    const answer = typeof v === "object" && v !== null ? (v as { answer?: unknown }).answer : undefined;
+    return typeof answer === "string" ? answer : undefined;
+  }
+
   /** The worker handle from this node's latest non-superseded outcome, if that worker was still running. */
   #runningWorker(node: string): string | undefined {
     const superseded = new Set(this.#history.flatMap((r) => (r.supersedes ? [r.supersedes] : [])));
@@ -401,6 +414,9 @@ class Pass {
   }
 }
 
+/** Override targets that reset every node's retry count: the owner re-ran the tree, answered an escalation or raised the tier. */
+const OWNER_RESET_TARGETS = new Set(["run", "escalation", "risk"]);
+
 /** The title of the link a research worker puts on the ticket for its findings. */
 export const FINDINGS_LINK = "Findings";
 
@@ -408,8 +424,9 @@ const RESEARCH_BRIEF = `Research only: write no code and commit nothing.
 Put the findings in the project's docs home, never in repo files or on a branch, and cite primary sources.
 When done, link the findings on the ticket with the title "${FINDINGS_LINK}" and post a short summary as a comment of kind "gist".`;
 
-function promptFor(t: Ticket, rejected?: string): string {
+function promptFor(t: Ticket, rejected?: string, answered?: string): string {
   const brief = t.workType === "research" ? RESEARCH_BRIEF : "";
   const redo = rejected ? `A reviewer rejected the previous findings: ${rejected}\nRevise them to address this.` : "";
-  return [`${t.title}\n\n${t.body}`.trim(), brief, redo].filter((p) => p !== "").join("\n\n");
+  const answer = answered ? `The ticket owner answered your question: ${answered}` : "";
+  return [`${t.title}\n\n${t.body}`.trim(), brief, redo, answer].filter((p) => p !== "").join("\n\n");
 }

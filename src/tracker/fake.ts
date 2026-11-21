@@ -8,13 +8,25 @@ import {
   type RiskTier,
   type Ticket,
   type Tracker,
+  REPLY_KIND,
 } from "./contract.ts";
+
+/** The owner every fake ticket has. */
+export const FAKE_OWNER = "owner";
 
 /** In-memory Tracker for tests. Held to the same contract suite as the real modules. */
 export class InMemoryTracker implements Tracker {
   #tickets = new Map<string, Ticket>();
   #comments = new Map<string, Comment[]>();
   #seq = 0;
+
+  /** Test helper: a human's plain reply on a ticket, as the tracker would show it. */
+  async reply(id: string, author: string, body: string): Promise<void> {
+    this.#get(id);
+    const list = this.#comments.get(id) ?? [];
+    list.push({ id: `c${++this.#seq}`, kind: REPLY_KIND, body, author, data: {}, createdAt: new Date().toISOString() });
+    this.#comments.set(id, list);
+  }
 
   async readTicket(id: string): Promise<Ticket> {
     return structuredClone(this.#get(id));
@@ -68,6 +80,8 @@ export class InMemoryTracker implements Tracker {
       priority: input.priority ?? 0,
       createdAt: new Date(Date.UTC(2026, 0, 1) + this.#seq * 1000).toISOString(),
       blockedBy: [...(input.blockedBy ?? [])],
+      owner: FAKE_OWNER,
+      url: `https://fake.tracker/${`FAKE-${this.#seq}`}`,
       ...(input.workType && { workType: input.workType }),
       ...(input.risk && { risk: input.risk }),
     };

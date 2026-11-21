@@ -27,6 +27,9 @@ export class FakeCodeHost implements CodeHost, PrHost {
     this.statuses.push({ sha, status });
   }
 
+  /** The description each PR was opened with. */
+  readonly prBodies = new Map<string, string>();
+
   setFacts(ticket: string, facts: Partial<CodeHostFacts>): void {
     const cur = this.#get(ticket);
     this.#facts.set(ticket, { ...cur, ...facts, checks: { ...cur.checks, ...facts.checks } });
@@ -40,8 +43,9 @@ export class FakeCodeHost implements CodeHost, PrHost {
     return structuredClone(this.#get(ticket));
   }
 
-  async openPr(ticket: string): Promise<string> {
+  async openPr(ticket: string, body?: string): Promise<string> {
     const f = this.#get(ticket);
+    if (body !== undefined) this.prBodies.set(ticket, body);
     f.pr ??= `https://fake.host/${ticket}/pr/1`;
     return f.pr;
   }

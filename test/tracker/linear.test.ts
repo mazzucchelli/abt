@@ -127,3 +127,29 @@ test("linear: setRisk adds the tier label and removes the other tier labels, tou
   assert.equal(update!.id, "ABT-1");
   assert.deepEqual(update!.input, { addedLabelIds: ["risk:high"], removedLabelIds: ["risk:low", "risk:medium"] });
 });
+
+test("linear: a comment abt did not write is read back as a reply by its author, and the ticket names its owner and url", async () => {
+  const { encodeComment } = await import("../../src/tracker/contract.ts");
+  const tracker = await createLinearTracker(config, {
+    apiKey: "k",
+    fetch: (async (_u: unknown, init: RequestInit) => {
+      const { query } = JSON.parse(String(init.body)) as { query: string };
+      if (query.includes("issueLabels")) return setupResponse(allStates, allLabels)();
+      if (query.includes("comments(")) {
+        return new Response(JSON.stringify({ data: { issue: { comments: { pageInfo: { hasNextPage: false, endCursor: null }, nodes: [
+          { id: "c2", body: "yes", createdAt: "2026-01-02T00:00:00Z", user: { id: "u-owner" } },
+          { id: "c1", body: encodeComment({ kind: "ask-point", body: "Q?", data: { n: 1 } }), createdAt: "2026-01-01T00:00:00Z", user: { id: "u-bot" } },
+        ] } } } }));
+      }
+      return new Response(JSON.stringify({ data: { issue: {
+        identifier: "ABT-1", title: "t", description: null, state: { name: "Needs You" }, assignee: null, creator: { id: "u-owner" },
+        url: "https://linear.app/x/issue/ABT-1", labels: { nodes: [] }, attachments: { nodes: [] },
+      } } }));
+    }) as typeof fetch,
+  });
+  const t = await tracker.readTicket("ABT-1");
+  assert.equal(t.owner, "u-owner");
+  assert.equal(t.url, "https://linear.app/x/issue/ABT-1");
+  const comments = (await tracker.readCommentsSince("ABT-1")).comments;
+  assert.deepEqual(comments.map((c) => [c.id, c.kind, c.author]), [["c1", "ask-point", undefined], ["c2", "reply", "u-owner"]]);
+});

@@ -246,6 +246,9 @@ export class Runner {
         add(t, facts.usageLimited ? "usage-limit" : "in-flight");
       }
 
+      // A ticket in Needs you holds no slot; each poll only checks for the owner's reply (or a reminder due).
+      if (mode === "poll") for (const t of await project.tracker.listByState("Needs you")) this.#trigger(project, t.id, false);
+
       for (const t of await project.tracker.listByState("In review")) {
         // Any worker running for a ticket in review still holds a slot.
         if (ticketFacts(project.log.read(t.id)).running) held.set(`${project.name}:${t.id}`, project.name);
