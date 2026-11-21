@@ -45,6 +45,7 @@
             "properties": {
               "nodeKind": { "enum": ["seq", "fallback", "all", "any", "not", "retry", "timeout", "check", "judge", "script", "action", "agent"] },
               "worker": { "type": "string", "minLength": 1 },
+              "headSha": { "type": "string", "minLength": 1 },
               "usageLimit": {
                 "type": "object",
                 "properties": {
@@ -190,11 +191,12 @@
       "then": {
         "properties": {
           "payload": {
-            "required": ["pr", "sha", "policy"],
+            "required": ["pr", "sha", "policy_hash", "tree_hash"],
             "properties": {
               "pr": { "type": "string", "minLength": 1 },
               "sha": { "type": "string", "minLength": 1 },
-              "policy": { "type": "string", "minLength": 1 }
+              "policy_hash": { "type": "string", "minLength": 1 },
+              "tree_hash": { "type": "string", "minLength": 1 }
             },
             "additionalProperties": false
           }

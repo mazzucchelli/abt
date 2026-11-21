@@ -1,0 +1,19 @@
+# Landing, solo-self: the runner merges the PR itself, under the project's merge policy.
+# The policy records this tree's hash (`land_tree_hash`); a different tree blocks merging.
+# A merged PR is done. Otherwise CI must be green on the head SHA (the policy names the jobs), the head
+# must not have moved, and the PR must be low risk or approved by a human; waiting for approval is
+# bounded, after which the ticket goes to Needs you. Only `runner-merge` ever merges.
+id: land
+fallback:
+  - check: pr-merged
+  - seq:
+      - check: ci-check-green
+      - check: head-sha-unchanged
+      - fallback:
+          - check: risk-within-cap
+          - check: pr-approved
+          - timeout: 2d
+            do:
+              action: await-approval
+          - action: escalate
+      - action: runner-merge

@@ -40,7 +40,7 @@ seq:
 
 test("reports an unknown check with a suggestion", () => {
   assert.deepEqual(messages("check: branch-up-to-dat\n"), [
-    'tree.yaml:1:8 unknown check "branch-up-to-dat" (did you mean "branch-up-to-date"? known: branch-up-to-date, required-checks-green, diff-size, trees-valid, feedback-check, pr-exists, findings-linked, gist-filled, review-auto)',
+    'tree.yaml:1:8 unknown check "branch-up-to-dat" (did you mean "branch-up-to-date"? known: branch-up-to-date, required-checks-green, diff-size, trees-valid, feedback-check, pr-exists, findings-linked, gist-filled, review-auto, pr-merged, ci-check-green, head-sha-unchanged, pr-approved, risk-within-cap)',
   ]);
 });
 
@@ -91,14 +91,14 @@ test("rejects unknown nodes and keys, and malformed YAML", () => {
 });
 
 test("does not suggest when nothing is close", () => {
-  assert.deepEqual(messages("check: zzzzzzzzzz\n"), ['tree.yaml:1:8 unknown check "zzzzzzzzzz" (known: branch-up-to-date, required-checks-green, diff-size, trees-valid, feedback-check, pr-exists, findings-linked, gist-filled, review-auto)']);
+  assert.deepEqual(messages("check: zzzzzzzzzz\n"), ['tree.yaml:1:8 unknown check "zzzzzzzzzz" (known: branch-up-to-date, required-checks-green, diff-size, trees-valid, feedback-check, pr-exists, findings-linked, gist-filled, review-auto, pr-merged, ci-check-green, head-sha-unchanged, pr-approved, risk-within-cap)']);
 });
 
 test("every example tree under docs/ is valid", async () => {
   const { readdirSync, readFileSync } = await import("node:fs");
   const { join } = await import("node:path");
   const files = (readdirSync("docs", { recursive: true }) as string[])
-    .filter((f) => /\.ya?ml$/.test(f))
+    .filter((f) => /\.ya?ml$/.test(f) && !/(^|\/)merge-policy\.ya?ml$/.test(f))
     .map((f) => join("docs", f));
   assert.ok(files.length > 0, "expected at least one example under docs/");
   for (const file of files) {

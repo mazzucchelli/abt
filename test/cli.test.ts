@@ -1,6 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
+import { createHash } from "node:crypto";
 
 const abt = (...args: string[]) =>
   spawnSync("bin/abt", args, { encoding: "utf8", env: { ...process.env, ABT_UNPINNED: "1" } });
@@ -15,8 +16,27 @@ test("abt validate exits non-zero and prints file:line:col diagnostics on an inv
   assert.notEqual(r.status, 0);
   assert.equal(
     r.stderr.trim(),
-    'test/fixtures/invalid.yaml:1:8 unknown check "branch-up-to-dat" (did you mean "branch-up-to-date"? known: branch-up-to-date, required-checks-green, diff-size, trees-valid, feedback-check, pr-exists, findings-linked, gist-filled, review-auto)',
+    'test/fixtures/invalid.yaml:1:8 unknown check "branch-up-to-dat" (did you mean "branch-up-to-date"? known: branch-up-to-date, required-checks-green, diff-size, trees-valid, feedback-check, pr-exists, findings-linked, gist-filled, review-auto, pr-merged, ci-check-green, head-sha-unchanged, pr-approved, risk-within-cap)',
   );
+});
+
+test("abt validate accepts the example merge policy and the land tree it was agreed with", () => {
+  assert.equal(abt("validate", "docs/examples/merge-policy.yaml").status, 0);
+  assert.equal(abt("validate", "defaults/trees/land.yaml").status, 0);
+  const policy = readFileSync("docs/examples/merge-policy.yaml", "utf8");
+  const hash = createHash("sha256").update(readFileSync("defaults/trees/land.yaml")).digest("hex");
+  assert.ok(policy.includes(`land_tree_hash: ${hash}`), "the example policy records the shipped land tree's hash");
+});
+
+test("abt validate reports what is wrong with a merge policy", () => {
+  const dir = mkdtempSync(join(tmpdir(), "abt-pol-"));
+  const file = join(dir, "merge-policy.yaml");
+  writeFileSync(file, "version: 1\nmode: sometimes\nenforcement: self\ngates: { required_checks: [ci], approvals: 1 }\nrisk_cap: low\nland_tree_hash: abc\n");
+  const r = abt("validate", file);
+  assert.equal(r.status, 1);
+  assert.match(r.stderr, /\/mode must be equal to one of the allowed values/);
+  assert.match(r.stderr, /compensating_controls/);
+  assert.match(r.stderr, /land_tree_hash must match pattern/);
 });
 
 test("abt validate exits non-zero when the file is missing", () => {

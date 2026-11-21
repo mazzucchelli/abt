@@ -1,5 +1,5 @@
 import { readFileSync } from "node:fs";
-import { dirname } from "node:path";
+import { basename, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { randomUUID } from "node:crypto";
 import { systemClock } from "./clock.ts";
@@ -13,6 +13,7 @@ import { DirTrees, LayeredTrees } from "./trees.ts";
 import { hookCommand } from "./harness/claude/hooks.ts";
 import { runnerCommand } from "./runner/cli.ts";
 import { validateWithUses } from "./validate.ts";
+import { policyProblems } from "./landing/policy.ts";
 import { upgradeCommand } from "./install/cli.ts";
 import { selfTestCommand } from "./install/selftest.ts";
 
@@ -24,7 +25,7 @@ commands:
   log        append to or show a ticket's decision log
   runner     start, stop or inspect the runner daemon
   onboard    onboard a repo (not implemented)
-  validate   validate a behavior-tree YAML file
+  validate   validate a behavior-tree or merge-policy YAML file
   upgrade    install a tag under the abt folder and switch to it, or roll back
   selftest   run the startup self-test of this install against Claude Code
 `;
@@ -44,6 +45,12 @@ async function main(argv: string[]): Promise<number> {
     } catch (e) {
       console.error(`abt: cannot read ${file}: ${(e as NodeJS.ErrnoException).code ?? e}`);
       return 2;
+    }
+    // A merge policy is validated against its own schema.
+    if (/^merge-policy\.ya?ml$/.test(basename(file))) {
+      const problems = policyProblems(source);
+      for (const p of problems) console.error(`${file}: ${p}`);
+      return problems.length === 0 ? 0 : 1;
     }
     // `use:` names resolve next to the file first, then in the plugin's default trees.
     const trees = new LayeredTrees(new DirTrees(dirname(file)), new DirTrees(fileURLToPath(new URL("../defaults/trees/", import.meta.url))));

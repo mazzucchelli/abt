@@ -1,0 +1,31 @@
+# Copy to .agents/abt/merge-policy.yaml in a project. It is separate from the adapter doc (workflow.md).
+# With no policy, an invalid one or mode: pr-only, abt opens the PR and never merges it.
+# Validate with: abt validate .agents/abt/merge-policy.yaml
+version: 1
+gates:
+  # CI jobs, by name, that must be green on the PR's head SHA.
+  required_checks: [can-merge]
+  # Human approvals a medium-risk PR needs before the runner merges it.
+  approvals: 1
+# server: the code host enforces the gates. self: the runner does, and the compensating controls are required.
+enforcement: self
+compensating_controls:
+  - runner-sole-merger  # only the runner merges, and only through the runner-merge action
+  - head-sha-recheck    # the head SHA is re-read right before the merge, which is pinned to it
+# The highest risk tier that merges with no human: low, or none (every merge needs an approval).
+risk_cap: low
+# merge, or pr-only.
+mode: merge
+evidence:
+  self_certification: false
+risk_map:
+  rules: []
+  max_lines: 400
+  max_files: 15
+# A snapshot of the project when this policy was agreed.
+facts:
+  default_branch: main
+  captured_at: "2026-11-20T00:00:00Z"
+# sha256 of defaults/trees/land.yaml, or of the project's own .agents/abt/trees/land.yaml. A different land tree blocks merging.
+# Compute it with: shasum -a 256 <land.yaml>
+land_tree_hash: 17e8c1ec30c40a4a75baf77355ae2dd71c6e8a3a2dcf1d0b30283d7e75b6f933
