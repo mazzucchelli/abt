@@ -1,3 +1,4 @@
+import type { Tracker } from "../tracker/contract.ts";
 import type { HarnessAdapter, UsageLimit, WorkerOutcome, WorkerRequest } from "./contract.ts";
 
 export interface ScriptedOutcome {
@@ -5,7 +6,7 @@ export interface ScriptedOutcome {
   why?: string;
   usageLimit?: UsageLimit;
   /** What the worker does to the world while it runs, for example linking its findings on the ticket. */
-  effect?: () => Promise<void>;
+  effect?: (req: WorkerRequest) => Promise<void>;
 }
 
 /** Returns scripted outcomes per skill, in order. The last one repeats. Keeps every request it saw. */
@@ -28,7 +29,7 @@ export class FakeHarness implements HarnessAdapter {
     const script = this.#scripts.get(`ticket:${req.ticket}`) ?? this.#scripts.get(req.skill);
     if (!script || script.length === 0) throw new Error(`no scripted outcome for skill ${req.skill}`);
     const outcome = script.length > 1 ? script.shift()! : script[0]!;
-    await outcome.effect?.();
+    await outcome.effect?.(req);
     const sessionId = req.session ?? `session-${++this.#next}`;
     return {
       result: outcome.result,
@@ -39,4 +40,15 @@ export class FakeHarness implements HarnessAdapter {
       ...(outcome.usageLimit && { usageLimit: outcome.usageLimit }),
     };
   }
+}
+
+/** A scripted spec worker: it publishes a spec whose every criterion is mapped, the way /to-spec does through the tracker. */
+export function specWriter(tracker: Tracker, body = "- [ ] It works: proved by: test/example.test.ts"): ScriptedOutcome {
+  return {
+    result: "ok",
+    effect: async (req) => {
+      await tracker.postComment(req.ticket, { kind: "spec", body });
+      await tracker.attachLink(req.ticket, { title: "Spec", url: `https://fake.tracker/${req.ticket}/spec` });
+    },
+  };
 }

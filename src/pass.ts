@@ -10,7 +10,11 @@ import type { DecisionLog } from "./log/store.ts";
 import { parseTree, type TreeNode } from "./tree.ts";
 import type { TreeStore } from "./trees.ts";
 import { DEFAULT_SCRIPT_TIMEOUT_MS, runScript } from "./script.ts";
-import { decidedAskPointsSection } from "./escalation.ts";
+import { decidedAskPointsSection, escalate as escalateAskPoint } from "./escalation.ts";
+import type { Notifier } from "./notify/contract.ts";
+import { SPEC_APPROVAL_QUESTION, SPEC_LINK, SPEC_COMMENT, specApproved, specApprovalAsked, specSkipLogged, validateSpec } from "./spec.ts";
+import { fileBootstrap } from "./risk/bootstrap.ts";
+import { maxTier } from "./risk/rules.ts";
 import { routeWorker, type RoutingDeps } from "./routing.ts";
 import type { Ticket, Tracker } from "./tracker/contract.ts";
 import { branchFor } from "./workspace/branch.ts";
@@ -57,6 +61,8 @@ export interface PassDeps {
   landing?: LandingContext;
   /** Gives each worker its own ports, database and build output. Without it workers get no extra environment. */
   envs?: WorkerEnvs;
+  /** Reaches the human when the pass itself sends a ticket to Needs you (a high-risk spec awaiting approval). */
+  notifier?: Notifier;
 }
 
 export interface PassResult {
@@ -278,12 +284,14 @@ class Pass {
       case "open-pr": {
         const facts = await codeHost.readFacts(ticket);
         const t = await tracker.readTicket(ticket);
-        const body = decidedAskPointsSection(this.#d.log.read(ticket));
+        const body = [specSection(this.#d.log.read(ticket), t.links), decidedAskPointsSection(this.#d.log.read(ticket))].filter((x) => x !== "").join("\n\n");
         const url = facts.pr ?? (await codeHost.openPr(ticket, body === "" ? undefined : body));
         if (!t.links.some((l) => l.url === url)) await tracker.attachLink(ticket, { title: "Pull request", url });
         await tracker.setState(ticket, "In review");
         return { result: "ok", why: facts.pr ? "PR already open" : "opened PR", evidence: url };
       }
+      case "await-spec-approval":
+        return this.#awaitSpecApproval();
       case "runner-merge":
         return this.#runnerMerge();
       case "await-approval": {
@@ -383,6 +391,10 @@ class Pass {
     const worktree = (await workspace.find(ticket)) ?? (t.workType === "research" ? await workspace.scratch(ticket) : undefined);
     if (!worktree) return { result: "fail", why: "claim before work: the ticket has no worktree" };
 
+    // Implementation starts only on an approved spec: a high-risk ticket's owner has to say yes first, whatever the tree says.
+    if (node.name !== SPEC_AGENT && t.workType !== "research" && effectiveTier(this.#d.log.read(ticket))?.tier === "high" && !specApproved(this.#d.log.read(ticket))) {
+      return { result: "fail", why: "refused: a high-risk ticket's spec must be approved by the owner before any implementation worker runs" };
+    }
     const session = this.#runningWorker(node.id);
     let model: string;
     let effort: string;
@@ -415,7 +427,7 @@ class Pass {
     }
     const out = await harness.run({
       skill: node.name,
-      prompt: promptFor(t, this.#rejection(), this.#ownerAnswer(), openConflict(this.#d.log.read(ticket))?.why),
+      prompt: promptFor(t, this.#rejection(), this.#ownerAnswer(), openConflict(this.#d.log.read(ticket))?.why, node.name === SPEC_AGENT ? this.#specBrief() : undefined),
       worktree,
       model,
       effort,
@@ -442,6 +454,8 @@ class Pass {
         const comments = (await tracker.readCommentsSince(ticket)).comments;
         return holds(comments.some((c) => c.kind === "gist" && c.body.trim() !== ""), "the ticket has no gist");
       }
+      case "spec-ready":
+        return this.#specReady();
       case "review-auto":
         return holds(this.#d.reviewAuto === true, "review=auto is off for this project");
       default:
@@ -465,6 +479,87 @@ class Pass {
       const usageLimit = (e as { usageLimit?: UsageLimit }).usageLimit;
       return { result: "error", why: `judge "${node.name}" failed: ${(e as Error).message}`, ...(usageLimit && { usageLimit }) };
     }
+  }
+
+  /**
+   * The spec gate. Holds when the skip applies (low risk, covered, not graded hard: logged once) or when a
+   * spec is linked on the tracker and every criterion is mapped. A gap criterion files the bootstrap ticket
+   * and lifts the ticket to at least medium. Anything else fails, which sends /to-spec to write or fix it.
+   */
+  async #specReady(): Promise<Outcome> {
+    const { tracker, ticket, log } = this.#d;
+    const t = await tracker.readTicket(ticket);
+    const records = log.read(ticket);
+    if (specSkipLogged(records)) return { result: "ok", why: "spec skipped earlier: the ticket body is the spec" };
+
+    const tier = effectiveTier(records)?.tier ?? t.risk ?? "medium";
+    const covered = !records.some((r) => r.kind === "risk-assessment" && Array.isArray(r.payload.reasons) && r.payload.reasons.some((x) => /evidence gap/.test(String(x))));
+    if (tier === "low" && covered) {
+      const route = await routeWorker(this.#d.routing ?? {}, { ticket: t, records });
+      if (route.grade !== "hard") {
+        const why = `spec skipped: low risk, covered and not hard (grade ${route.grade}); the ticket body is the spec`;
+        log.append(ticket, { run: this.#run, node: null, kind: "note", decision: "spec skipped", why, evidence: null, result: "ok", payload: { by: "runner", text: why, specSkip: true } });
+        return { result: "ok", why };
+      }
+    }
+
+    const comments = (await tracker.readCommentsSince(ticket)).comments;
+    const spec = comments.findLast((c) => c.kind === SPEC_COMMENT);
+    const link = t.links.find((l) => l.title === SPEC_LINK);
+    if (!spec || !link) return { result: "fail", why: `no spec yet: ${!spec ? `no "${SPEC_COMMENT}" comment` : `no link titled "${SPEC_LINK}"`} on the ticket` };
+    const verdict = validateSpec(spec.body);
+    if (verdict.refused.length > 0) return { result: "fail", why: `spec refused: ${verdict.refused.join("; ")}`, evidence: link.url };
+
+    if (verdict.gaps.length > 0) {
+      const bootstrap = await fileBootstrap(
+        { tracker, log },
+        // The bootstrap dedupe key is comma-joined, so a comma in a criterion would break its round trip.
+        { ticket, run: this.#run, gaps: verdict.gaps.map((g) => ({ path: g.text.replace(/,/g, ";"), surface: "other" as const, reason: "no committed check proves this criterion", needsBootstrap: true })) },
+      );
+      if (tier === "low") {
+        const lifted = maxTier(tier, "medium");
+        const why = `evidence gap: ${verdict.gaps.length} criterion(s) marked gap; at least medium`;
+        log.append(ticket, {
+          run: this.#run, node: null, kind: "risk-assessment", decision: `risk tier ${lifted} at intake`, why, evidence: link.url, result: "ok",
+          payload: { tier: lifted, floor: lifted, moment: "intake", reasons: [why] },
+        });
+        await tracker.setRisk(ticket, lifted);
+      }
+      return { result: "ok", why: `spec linked, every criterion mapped; ${verdict.gaps.length} gap(s) feed the evidence-gap rule${bootstrap ? ` (filed ${bootstrap})` : ""}`, evidence: link.url };
+    }
+    return { result: "ok", why: "spec linked, every criterion mapped to a check", evidence: link.url };
+  }
+
+  /** High risk: the owner approves the spec, with its foreseeable ask-points batched in. Lower tiers pass: medium is approved at the PR. */
+  async #awaitSpecApproval(): Promise<Outcome> {
+    const { tracker, ticket, log } = this.#d;
+    const records = log.read(ticket);
+    const tier = effectiveTier(records)?.tier ?? (await tracker.readTicket(ticket)).risk ?? "medium";
+    if (tier !== "high") return { result: "ok", why: tier === "medium" ? "medium risk: the spec is approved at the PR" : "low risk: no spec approval needed" };
+    if (specApproved(records)) return { result: "ok", why: "the owner approved the spec" };
+    if (specApprovalAsked(records)) return { result: "running", why: "waiting for the owner to approve the spec" };
+
+    const spec = (await tracker.readCommentsSince(ticket)).comments.findLast((c) => c.kind === SPEC_COMMENT);
+    const link = (await tracker.readTicket(ticket)).links.find((l) => l.title === SPEC_LINK);
+    const batched = spec ? validateSpec(spec.body).askPoints : [];
+    const question = batched.length === 0
+      ? `${SPEC_APPROVAL_QUESTION} A high-risk ticket starts implementing only once you do.`
+      : `${SPEC_APPROVAL_QUESTION} Approving also settles these foreseeable ask-points, each with its recommendation:\n${batched.map((a) => `- ${a}`).join("\n")}`;
+    await escalateAskPoint(
+      { tracker, log, ...(this.#d.notifier && { notifier: this.#d.notifier }) },
+      {
+        ticket, run: this.#run, node: null, reason: "high risk: the owner approves the spec before implementation starts",
+        askPoint: { question, recommended: "yes: approve the spec and start implementing", evidence: link?.url ?? log.path(ticket), reversible: true },
+      },
+    );
+    return { result: "running", why: "high risk: the spec is waiting for the owner's approval" };
+  }
+
+  /** Why the latest spec was refused, while the spec worker is still the next one to run: it must fix exactly that. */
+  #specBrief(): string {
+    const refusal = this.#d.log.read(this.#d.ticket).findLast((r) => r.kind === "node-outcome" && r.payload.nodeKind === "check" && r.decision === "check spec-ready" && r.result === "fail");
+    const redo = refusal && /^spec refused/.test(refusal.why) ? `\nThe runner refused your previous spec: ${refusal.why}\nFix exactly that and publish the spec again.` : "";
+    return SPEC_BRIEF + redo;
   }
 
   /** Why the last failing node failed in this run, for an escalation that has no other reason. */
@@ -536,10 +631,25 @@ const RESEARCH_BRIEF = `Research only: write no code and commit nothing.
 Put the findings in the project's docs home, never in repo files or on a branch, and cite primary sources.
 When done, link the findings on the ticket with the title "${FINDINGS_LINK}" and post a short summary as a comment of kind "gist".`;
 
-function promptFor(t: Ticket, rejected?: string, answered?: string, conflict?: string): string {
+/** The agent action that writes the spec. It is the /to-spec skill, unmodified; this brief only says where to put the result. */
+const SPEC_AGENT = "to-spec";
+
+const SPEC_BRIEF = `Write the spec for this ticket with /to-spec, and write no code.
+Publish it through the tracker: post it as a comment of kind "${SPEC_COMMENT}" and link it on the ticket with the title "${SPEC_LINK}".
+Every acceptance criterion is a checkbox item that ends with "proved by: <path of an existing committed check>" or with "gap" when no committed check could prove it.
+List the ticket's foreseeable ask-points, each with your recommendation, under a "## Ask-points" heading.`;
+
+/** The PR description's spec section, for a medium ticket: approving the PR approves the spec. */
+function specSection(records: DecisionRecord[], links: { title: string; url: string }[]): string {
+  if (effectiveTier(records)?.tier !== "medium") return "";
+  const link = links.find((l) => l.title === SPEC_LINK);
+  return link ? `## Spec\n[${SPEC_LINK}](${link.url}): approving this PR approves the spec.` : "";
+}
+
+function promptFor(t: Ticket, rejected?: string, answered?: string, conflict?: string, specBrief?: string): string {
   const brief = t.workType === "research" ? RESEARCH_BRIEF : "";
   const redo = rejected ? `A reviewer rejected the previous findings: ${rejected}\nRevise them to address this.` : "";
   const answer = answered ? `The ticket owner answered your question: ${answered}` : "";
   const rebase = conflict ? `Another PR landed and this branch no longer rebases cleanly onto the default branch: ${conflict}.\nRebase the branch onto the default branch, resolve the conflict and keep the change working.` : "";
-  return [`${t.title}\n\n${t.body}`.trim(), brief, redo, answer, rebase].filter((p) => p !== "").join("\n\n");
+  return [`${t.title}\n\n${t.body}`.trim(), brief, specBrief ?? "", redo, answer, rebase].filter((p) => p !== "").join("\n\n");
 }
