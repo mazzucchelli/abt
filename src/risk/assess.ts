@@ -88,7 +88,7 @@ export const DEFAULT_TIMEOUT_MS = 30_000;
 export const DEFAULT_MIN_CONFIDENCE = 0.6;
 export const DEFAULT_MAX_PATCH_CHARS = 60_000;
 
-const HUMAN_NOT = new Set(["runner", "agent", "worker", "judge", "classifier", "abt"]);
+export const HUMAN_NOT = new Set(["runner", "agent", "worker", "judge", "classifier", "abt"]);
 
 /** The ticket's tier as the log last left it: an assessment sets it, a human override resets it. */
 export function effectiveTier(records: DecisionRecord[]): { tier: RiskTier; by: "assessment" | "override" } | undefined {

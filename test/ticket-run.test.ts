@@ -47,6 +47,7 @@ test("a Todo ticket goes to In review with a PR linked, and every node outcome i
     outcomes.map((x) => `${x.node}=${x.result}`),
     [
       "claim=ok",
+      "implement/0/0=ok",
       "implement/0=ok",
       "implement/1/0=fail",
       "implement/1/1/0=ok",
@@ -70,8 +71,8 @@ test("at the terminal state one structured summary comment is posted", async () 
     tier: "medium",
     tierWhy: "no risk assessment yet; defaulted to medium",
     grade: "standard",
-    model: "sonnet",
-    effort: "medium",
+    model: "claude-sonnet-5-5",
+    effort: "high",
     askPoints: [],
     logPath: w.log.path(w.id),
   });
@@ -90,17 +91,21 @@ test("a tree whose action pushes to the default branch is refused by the invaria
   assert.match((await w.comments()).find((c) => c.kind === "tree-error")!.body, /never push directly/);
 });
 
-test("a worker failure ends in cleanup: worktree removed, failure logged, ticket to Needs you", async () => {
+test("a worker that keeps failing steps up, then ends in cleanup: worktree removed, failure logged, ticket to Needs you", async () => {
   const w = await world();
   w.harness.script("tdd-afk", { result: "fail", why: "tests never went green" });
-  const r = await w.run();
+  let r = await w.run();
+  assert.equal(r.terminal, false);
+  for (let i = 0; i < 9 && !r.terminal; i++) r = await w.run();
   assert.equal(r.result, "fail");
   assert.equal(await w.state(), "Needs you");
   assert.equal(await w.workspace.find(w.id), undefined);
+  // Two failures at standard, one at hard, then nothing left to step up to.
+  assert.deepEqual(w.harness.requests.map((q) => q.model), ["claude-sonnet-5-5", "claude-sonnet-5-5", "claude-opus-5-5"]);
   const recs = w.log.read(w.id);
-  assert.equal(recs.find((x) => x.kind === "node-outcome" && x.node === "implement/0")!.why, "tests never went green (exit 1)");
-  assert.equal(recs.find((x) => x.node === "cleanup")!.result, "ok");
-  assert.match(recs.find((x) => x.kind === "escalation")!.why, /tests never went green/);
+  assert.equal(recs.find((x) => x.kind === "node-outcome" && x.node === "implement/0/0")!.why, "tests never went green (exit 1)");
+  assert.equal(recs.findLast((x) => x.node === "cleanup")!.result, "ok");
+  assert.match(recs.findLast((x) => x.kind === "escalation")!.why, /failed at hard|tests never went green/);
   assert.equal((await w.comments()).filter((c) => c.kind === "summary").length, 1);
 });
 

@@ -8,6 +8,7 @@ import { FakeCodeHost } from "../src/codehost/fake.ts";
 import { FakeHarness } from "../src/harness/fake.ts";
 import { DecisionLog } from "../src/log/store.ts";
 import { runPass } from "../src/pass.ts";
+import { overrideGrade } from "../src/routing.ts";
 import { InMemoryTracker } from "../src/tracker/fake.ts";
 import { FakeWorkspace } from "../src/workspace/fake.ts";
 
@@ -282,11 +283,64 @@ test("a worker gets the skill, prompt, worktree, routed model and effort, and fe
   assert.equal(req.skill, "tdd-afk");
   assert.equal(req.prompt, "t\n\nb");
   assert.equal(req.worktree, await w.workspace.find(w.ticket));
-  assert.deepEqual([req.model, req.effort], ["sonnet", "medium"]);
+  assert.deepEqual([req.model, req.effort], ["claude-sonnet-5-5", "high"]);
   assert.deepEqual(req.feedback, { commands: [] });
   const routing = w.log.read(w.ticket).find((r) => r.kind === "routing")!;
-  assert.deepEqual(routing.payload, { grade: "standard", model: "sonnet", effort: "medium" });
+  assert.deepEqual(routing.payload, {
+    grade: "standard", model: "claude-sonnet-5-5", effort: "high", min_model_from_risk: "claude-sonnet-5-5", base: "standard", steps: 0, source: "rules",
+  });
+  assert.match(routing.decision, /claude-sonnet-5-5/);
   assert.match(w.records().root!.evidence!, /transcripts/);
+});
+
+const RETRY = "retry: 5\ndo:\n  agent: tdd-afk\n";
+
+test("a worker is launched at the grade the ticket's risk needs, and the pinned model ID is logged", async () => {
+  const w = await world();
+  await w.claim();
+  w.harness.script("tdd-afk", { result: "ok" });
+  w.log.append(w.ticket, { run: "r0", node: null, kind: "risk-assessment", decision: "risk tier high", why: "w", evidence: null, result: "ok", payload: { tier: "high", reasons: [] } });
+  await w.pass("agent: tdd-afk");
+  assert.deepEqual([w.harness.requests[0]!.model, w.harness.requests[0]!.effort], ["claude-opus-5-5", "high"]);
+  const routing = w.log.read(w.ticket).find((r) => r.kind === "routing")!;
+  assert.equal(routing.payload.grade, "hard");
+  assert.equal(routing.payload.min_model_from_risk, "claude-opus-5-5");
+  assert.match(routing.decision, /claude-opus-5-5/);
+});
+
+test("two failures at standard step up to hard on the next launch; one at hard stops the retry and fails", async () => {
+  const w = await world();
+  await w.claim();
+  w.harness.script("tdd-afk", { result: "fail" });
+  let r = await w.pass(RETRY);
+  for (let i = 0; i < 9 && r.result === "running"; i++) r = await w.pass(RETRY);
+  assert.equal(r.result, "fail");
+  assert.deepEqual(w.harness.requests.map((q) => `${q.model}/${q.effort}`), [
+    "claude-sonnet-5-5/high", "claude-sonnet-5-5/high", "claude-opus-5-5/high",
+  ]);
+  const last = w.log.read(w.ticket).findLast((x) => x.kind === "node-outcome" && x.payload.nodeKind === "agent")!;
+  assert.match(last.why, /failed at hard/);
+  assert.equal(w.log.read(w.ticket).filter((x) => x.kind === "routing").at(-1)!.payload.source, "step-up");
+});
+
+test("a human grade override wins, and the grade is not stepped up", async () => {
+  const w = await world();
+  await w.claim();
+  w.harness.script("tdd-afk", { result: "fail" });
+  await overrideGrade({ log: w.log }, { ticket: w.ticket, run: "r0", to: "simple", by: "matteo" });
+  for (let i = 0; i < 6; i++) await w.pass(RETRY);
+  assert.ok(w.harness.requests.length > 0);
+  assert.ok(w.harness.requests.every((q) => q.model === "claude-sonnet-5-5" && q.effort === "medium"));
+});
+
+test("a poll of a running worker does not route again", async () => {
+  const w = await world();
+  await w.claim();
+  w.harness.script("tdd-afk", { result: "running" });
+  await w.pass("agent: tdd-afk");
+  await w.pass("agent: tdd-afk");
+  assert.equal(w.log.read(w.ticket).filter((x) => x.kind === "routing").length, 1);
+  assert.equal(w.harness.requests[1]!.model, "claude-sonnet-5-5");
 });
 
 test("claim creates branch and worktree, moves the ticket to In progress, and is idempotent", async () => {
