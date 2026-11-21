@@ -41,8 +41,8 @@ async function world(opts: { tier?: RiskTier; policy?: string | null; project?: 
   const { id } = await tracker.createTicket({ title: "feat: add the thing", body: "details", risk: opts.tier ?? "low" });
   const codeHost = new FakeCodeHost();
   const harness = new FakeHarness();
-  harness.script("tdd-afk", { result: "ok" });
-  harness.script("to-spec", specWriter(tracker));
+  harness.script("tdd", { result: "ok" });
+  harness.script("spec-writing", specWriter(tracker));
   const workspace = new FakeWorkspace();
   let n = 0;
   const newId = () => `id-${++n}`;
@@ -125,7 +125,7 @@ test("a high ticket is claimed and its spec written, then stops at Needs you bef
   const r = await w.run();
   assert.equal(r.result, "running");
   assert.equal(await w.state(), "Needs you");
-  assert.deepEqual(w.harness.requests.map((q) => q.skill), ["to-spec"]);
+  assert.deepEqual(w.harness.requests.map((q) => q.procedure), ["spec-writing"]);
   assert.match(w.kinds("escalation")[0]!.why, /high risk/);
 });
 

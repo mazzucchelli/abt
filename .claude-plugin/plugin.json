@@ -2,6 +2,25 @@
   "name": "abt",
   "version": "0.0.0",
   "description": "Agent's behavior trees: the plugin, the library and the runner.",
-  "author": { "name": "Matteo Mazzucchelli" },
-  "license": "MIT"
+  "author": {
+    "name": "Matteo Mazzucchelli"
+  },
+  "license": "MIT",
+  "skills": [
+    "./procedures/implement",
+    "./procedures/tdd",
+    "./procedures/code-review",
+    "./procedures/diagnosing-bugs",
+    "./procedures/research",
+    "./procedures/spike",
+    "./procedures/pr",
+    "./procedures/refactoring",
+    "./procedures/setup-pre-commit",
+    "./procedures/setup-ts-deep-modules",
+    "./procedures/grilling",
+    "./procedures/domain-modeling",
+    "./procedures/spec-writing",
+    "./procedures/ticket-splitting",
+    "./procedures/triaging"
+  ]
 }

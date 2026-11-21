@@ -4,5 +4,5 @@
   "codeHost": {
     "FAKE-1": { "checks": { "branch-up-to-date": false, "required-checks-green": true } }
   },
-  "harness": { "tdd-afk": [{ "result": "ok" }] }
+  "harness": { "tdd": [{ "result": "ok" }] }
 }

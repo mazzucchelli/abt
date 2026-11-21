@@ -4,6 +4,7 @@ import { spawnSync } from "node:child_process";
 import { mkdtempSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { validateRecord } from "../src/log/record.ts";
 
 function setup() {
   const home = mkdtempSync(join(tmpdir(), "abt-log-"));
@@ -184,4 +185,11 @@ test("a worker's retype is refused and turned into an escalated ask-point", () =
   assert.equal(records[0].payload.reversible, false);
   assert.equal(records[0].payload.retype, "research");
   assert.match(records[0].payload.question, /research/);
+});
+
+test("an ask-point a worker raises is open and carries no handling; a settled one must say how it was handled", () => {
+  const raised = { ...nodeOutcome(), kind: "ask-point", decision: "which db", result: "open", payload: { question: "q", recommended: "r", reversible: true } };
+  assert.deepEqual(validateRecord({ ...raised, id: "a", timestamp: "2026-01-01T00:00:00Z", ticket: "T-1" }), []);
+  const settled = { ...raised, result: "ok", id: "b", timestamp: "2026-01-01T00:00:00Z", ticket: "T-1" };
+  assert.ok(validateRecord(settled).some((p) => /handling/.test(p)));
 });

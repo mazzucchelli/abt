@@ -22,8 +22,8 @@ async function world(opts: { workType?: WorkType; risk?: RiskTier } = {}) {
   const { id } = await tracker.createTicket({ title: "feat: add the thing", body: "details", workType: opts.workType ?? "implement", ...(opts.risk && { risk: opts.risk }) });
   const codeHost = new FakeCodeHost();
   const harness = new FakeHarness();
-  harness.script("tdd-afk", { result: "ok" });
-  harness.script("to-spec", specWriter(tracker));
+  harness.script("tdd", { result: "ok" });
+  harness.script("spec-writing", specWriter(tracker));
   harness.script("research", {
     result: "ok",
     effect: async () => {
@@ -60,7 +60,7 @@ test("retyping implement to research closes the open PR without merging it, and 
   assert.deepEqual(w.codeHost.merges, []);
   assert.equal(r.result, "ok");
   assert.equal(await w.state(), "Done");
-  assert.ok(w.harness.requests.some((q) => q.skill === "research"));
+  assert.ok(w.harness.requests.some((q) => q.procedure === "research"));
 });
 
 test("the retype record names who, from, to, the worker's branch and the PR it closed", async () => {

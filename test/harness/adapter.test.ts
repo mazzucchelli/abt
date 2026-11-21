@@ -31,7 +31,7 @@ function setup(res: Partial<SpawnResult> & { stdout: string }, ready?: () => Pro
     ready: ready ?? (async () => {}),
   });
   const req: WorkerRequest = {
-    skill: "tdd-afk", prompt: "do it", worktree: dir, model: "claude-sonnet-5-5", effort: "medium",
+    procedure: "tdd", prompt: "do it", worktree: dir, model: "claude-sonnet-5-5", effort: "medium",
     feedback: { commands: [] }, ticket: "ABT-9", node: "n1",
   };
   return { adapter, req, specs, dir, profile };

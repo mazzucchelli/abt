@@ -74,7 +74,7 @@ test("a project with no default branch configured is never rebased", async () =>
 
 test("at start the runner removes clean orphan worktrees and reports dirty ones without deleting them", async () => {
   const m = hygienic();
-  m.harness.script("tdd-afk", { result: "running" });
+  m.harness.script("tdd", { result: "running" });
   const live = await m.ticket("feat: live");
   await m.tracker.claim(live);
   await m.workspace.ensure(live, "feat/live");

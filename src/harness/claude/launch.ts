@@ -8,6 +8,8 @@ const HOST_ENV = ["ABT_HOME", "PATH", "HOME", "USER", "LOGNAME", "SHELL", "LANG"
 /** What a `dontAsk` worker may do. Anything not listed is denied. */
 export const WORKER_ALLOW = [
   "Read", "Edit", "Write", "Glob", "Grep",
+  // Procedures are hidden skills, so a worker starts on one through the Skill tool, never a slash command.
+  "Skill(abt:*)",
   "Bash(npm *)", "Bash(node *)", "Bash(npx *)",
   "Bash(git status*)", "Bash(git diff*)", "Bash(git log*)", "Bash(git add*)", "Bash(git commit*)",
   "Bash(ls *)", "Bash(cat *)",
@@ -45,8 +47,8 @@ interface Common {
 
 export interface WorkerLaunch extends Common {
   kind: "worker";
-  /** The abt skill to invoke. Omit for a raw prompt, as the startup self-test does. */
-  skill?: string;
+  /** The abt procedure to start the worker on, by name. Omit for a raw prompt, as the startup self-test does. */
+  procedure?: string;
   model: string;
   effort: string;
   feedback?: string[];
@@ -86,6 +88,20 @@ export function allowedHostEnv(hostEnv: Record<string, string | undefined>): Rec
   return env;
 }
 
+/**
+ * What a worker is told before its task. A procedure is hidden from the command menu, so the worker invokes it by
+ * name through the Skill tool. Whether it may ask a human is the worker's context, never the procedure's: none is
+ * present, so where the procedure would ask, the worker raises an ask-point and the risk tier decides.
+ */
+function workerBrief(procedure: string, pluginDir: string, ticket?: string): string {
+  const append = ticket ? `abt log append ${ticket}` : "abt log append <ticket>";
+  return [
+    `Start by invoking the abt procedure with the Skill tool: skill "abt:${procedure}". Follow it for this task.`,
+    `No human is present. Where the procedure says to ask, interview or confirm with the human, do not wait: raise an ask-point. Write one record with \`${append}\` (JSON on stdin: kind "ask-point", decision = the question, why, evidence, result "open", payload {question, recommended, reversible}), then hand back. You never set how it is handled: the runner applies the risk tier, deciding with your recommended answer or escalating to the human.`,
+    `Principles: the index is in your system prompt; read a principle's file under ${join(pluginDir, "principles")}/ only when its trigger fires. Reference files (codebase-design, writing-for-agents, experience-first) are under ${join(pluginDir, "reference")}/.`,
+  ].join("\n\n");
+}
+
 /** Build the command line and environment for one headless Claude Code run. Pure. */
 export function buildLaunch(l: WorkerLaunch | JudgeLaunch): SpawnSpec {
   const { profile } = l;
@@ -98,8 +114,13 @@ export function buildLaunch(l: WorkerLaunch | JudgeLaunch): SpawnSpec {
       ? `Before you hand back, audit your own decision records: run \`abt log show ${l.ticket}\`, check that every ask-point and pivot record you wrote says what you actually did, and write a corrected record that supersedes any that is wrong. If the ticket turns out to depend on another ticket that has not merged, append a blocked record (payload {"by": ["<ticket id>"]}) and stop: the runner frees your slot and resumes the ticket once it merges. You may write only ask-point, pivot and blocked records. If the ticket looks like the wrong work type, write an ask-point: only the owner retypes a ticket, and a retype record of yours is refused.`
       : undefined;
   const prompt =
-    l.kind === "worker" && l.skill
-      ? [`/abt:${l.skill}`, l.prompt, ...(feedback.length ? ["Run these until they pass:", ...feedback.map((c) => `- ${c}`)] : []), ...(audit ? [audit] : [])].join("\n\n")
+    l.kind === "worker" && l.procedure
+      ? [
+          workerBrief(l.procedure, profile.pluginDir, l.ticket),
+          l.prompt,
+          ...(feedback.length ? ["Run these until they pass:", ...feedback.map((c) => `- ${c}`)] : []),
+          ...(audit ? [audit] : []),
+        ].join("\n\n")
       : l.prompt;
 
   const args = [
@@ -108,7 +129,7 @@ export function buildLaunch(l: WorkerLaunch | JudgeLaunch): SpawnSpec {
     ...(l.kind === "worker" ? ["--effort", l.effort] : []),
     "--setting-sources", "project,local",
     "--settings", l.settingsPath,
-    ...(l.kind === "worker" ? ["--plugin-dir", profile.pluginDir] : ["--tools", "", "--json-schema", JSON.stringify(l.schema)]),
+    ...(l.kind === "worker" ? ["--plugin-dir", profile.pluginDir, "--append-system-prompt-file", join(profile.pluginDir, "principles", "index.md")] : ["--tools", "", "--json-schema", JSON.stringify(l.schema)]),
     "--permission-mode", "dontAsk",
     "--permission-prompts", "none",
     "--output-format", "stream-json",

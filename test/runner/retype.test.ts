@@ -5,7 +5,7 @@ import { machine, until } from "./machine.ts";
 
 test("a retype by the owner stops the running worker, and the next pass runs the new type's tree", async () => {
   const m = machine();
-  m.harness.script("tdd-afk", { result: "running" });
+  m.harness.script("tdd", { result: "running" });
   m.harness.script("research", { result: "running" });
   const { id } = await m.tracker.createTicket({ title: "feat: add the thing", body: "", workType: "implement" });
   const r = m.runner();
@@ -20,7 +20,7 @@ test("a retype by the owner stops the running worker, and the next pass runs the
 
   assert.deepEqual(m.workers.killed, [4242]);
   assert.deepEqual(m.log.read(id).filter((x) => x.kind === "retype").map((x) => `${x.payload.from}->${x.payload.to}`), ["implement->research"]);
-  assert.equal(m.harness.requests.at(-1)!.skill, "research");
+  assert.equal(m.harness.requests.at(-1)!.procedure, "research");
   assert.equal(await m.state(id), "In progress");
   await until(async () => ticketFacts(m.log.read(id)).agentNode?.startsWith("research") === true);
   await r.stop();
