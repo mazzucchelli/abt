@@ -1,4 +1,4 @@
-/** The closed tracker contract: nine operations, tracker-neutral. */
+/** The closed tracker contract: eleven operations, tracker-neutral. */
 
 export const LIFECYCLE_STATES = [
   "Todo",
@@ -90,6 +90,13 @@ export interface Tracker {
   /** Creates an abt-marked ticket in Todo. */
   createTicket(input: NewTicket): Promise<Ticket>;
   attachLink(id: string, link: Link): Promise<void>;
+  /**
+   * Hands an existing ticket to abt in one write: adds the abt marker and the work type label,
+   * replacing any other work type label and leaving every other label and the state alone.
+   */
+  enqueue(id: string, workType: WorkType): Promise<void>;
+  /** A plain comment from whoever holds the tracker credential, read back as a reply by that user. Carries no abt marker. */
+  postReply(id: string, body: string): Promise<void>;
   /** Sets the ticket's risk tier label, replacing any other tier label and leaving every other label alone. */
   setRisk(id: string, tier: RiskTier): Promise<void>;
 }

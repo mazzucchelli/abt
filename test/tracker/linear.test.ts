@@ -153,3 +153,39 @@ test("linear: a comment abt did not write is read back as a reply by its author,
   const comments = (await tracker.readCommentsSince("ABT-1")).comments;
   assert.deepEqual(comments.map((c) => [c.id, c.kind, c.author]), [["c1", "ask-point", undefined], ["c2", "reply", "u-owner"]]);
 });
+
+test("linear: enqueue is one issue update that adds the abt marker and the work type and removes the other work types", async () => {
+  const updates: { id: string; input: Record<string, unknown> }[] = [];
+  const tracker = await createLinearTracker(config, {
+    apiKey: "k",
+    fetch: (async (_u: unknown, init: RequestInit) => {
+      const { query, variables } = JSON.parse(String(init.body));
+      if (/issueUpdate/.test(query)) {
+        updates.push(variables);
+        return new Response(JSON.stringify({ data: { issueUpdate: { success: true } } }));
+      }
+      return setupResponse(allStates, allLabels)();
+    }) as typeof fetch,
+  });
+  await tracker.enqueue("ABT-1", "research");
+  assert.deepEqual(updates, [
+    { id: "ABT-1", input: { addedLabelIds: ["abt", "research"], removedLabelIds: ["implement", "spike", "bootstrap"] } },
+  ]);
+});
+
+test("linear: postReply is a plain comment with no abt marker", async () => {
+  let input: { issueId: string; body: string } | undefined;
+  const tracker = await createLinearTracker(config, {
+    apiKey: "k",
+    fetch: (async (_u: unknown, init: RequestInit) => {
+      const { query, variables } = JSON.parse(String(init.body));
+      if (/commentCreate/.test(query)) {
+        input = variables.input;
+        return new Response(JSON.stringify({ data: { commentCreate: { success: true } } }));
+      }
+      return setupResponse(allStates, allLabels)();
+    }) as typeof fetch,
+  });
+  await tracker.postReply("ABT-1", "answer: use postgres");
+  assert.deepEqual(input, { issueId: "ABT-1", body: "answer: use postgres" });
+});

@@ -56,3 +56,12 @@ The tracker contract suite always runs against the in-memory fake. To run it aga
 ```sh
 ABT_TEST_LINEAR=1 ABT_TEST_LINEAR_ADAPTER=/path/to/sandbox-workflow.md LINEAR_API_KEY=... npm test
 ```
+
+## Primary agent: enqueue
+
+From a Claude Code chat, `/abt:enqueue <ticket> [work type]` runs `abt enqueue`: one tracker write (the abt marker and the work type), a nudge to the runner and a one-line ack with the tracker link. It refuses only an unreadable ticket, a ticket with no work type, or a project with no agreed merge policy (it then offers onboarding). With the runner down the ticket is still enqueued, with a "runner not running" note and an offer to start it; the runner is never started without a yes. A chat reply to an escalation goes through `abt reply <ticket> <text>`, which writes it to the ticket as the owner's comment, so the tracker stays the one resume path.
+
+```bash
+bin/abt enqueue ABT-62 --type implement
+bin/abt reply ABT-62 "answer: use postgres"
+```

@@ -6,6 +6,7 @@ import {
   type NewTicket,
   type StructuredComment,
   type RiskTier,
+  type WorkType,
   type Ticket,
   type Tracker,
   REPLY_KIND,
@@ -91,6 +92,16 @@ export class InMemoryTracker implements Tracker {
 
   async attachLink(id: string, link: Link): Promise<void> {
     this.#get(id).links.push({ ...link });
+  }
+
+  async enqueue(id: string, workType: WorkType): Promise<void> {
+    const t = this.#get(id);
+    t.abt = true;
+    t.workType = workType;
+  }
+
+  async postReply(id: string, body: string): Promise<void> {
+    await this.reply(id, FAKE_OWNER, body);
   }
 
   async setRisk(id: string, tier: RiskTier): Promise<void> {

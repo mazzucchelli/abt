@@ -251,6 +251,22 @@ export async function createLinearTracker(config: TrackerConfig, opts: LinearOpt
       if (!r.attachmentCreate.success) throw new Error(`Linear refused the link on ${id}`);
     },
 
+    async enqueue(id, workType) {
+      const names = config.labels.workType;
+      await update(id, {
+        addedLabelIds: [labelIds.get(config.labels.abt)!, labelIds.get(names[workType])!],
+        removedLabelIds: WORK_TYPES.filter((w) => w !== workType).map((w) => labelIds.get(names[w])!),
+      });
+    },
+
+    async postReply(id, body) {
+      const r = await gql<{ commentCreate: { success: boolean } }>(
+        `mutation($input: CommentCreateInput!) { commentCreate(input: $input) { success } }`,
+        { input: { issueId: id, body } },
+      );
+      if (!r.commentCreate.success) throw new Error(`Linear refused the comment on ${id}`);
+    },
+
     async setRisk(id, tier) {
       const names = config.labels.risk;
       await update(id, {
