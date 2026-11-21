@@ -13,8 +13,10 @@ import { DirTrees, LayeredTrees } from "./trees.ts";
 import { hookCommand } from "./harness/claude/hooks.ts";
 import { runnerCommand } from "./runner/cli.ts";
 import { validateWithUses } from "./validate.ts";
+import { upgradeCommand } from "./install/cli.ts";
+import { selfTestCommand } from "./install/selftest.ts";
 
-const STUBS = ["onboard", "upgrade"];
+const STUBS = ["onboard"];
 const USAGE = `usage: abt <command>
 
 commands:
@@ -23,7 +25,8 @@ commands:
   runner     start, stop or inspect the runner daemon
   onboard    onboard a repo (not implemented)
   validate   validate a behavior-tree YAML file
-  upgrade    upgrade abt (not implemented)
+  upgrade    install a tag under the abt folder and switch to it, or roll back
+  selftest   run the startup self-test of this install against Claude Code
 `;
 
 async function main(argv: string[]): Promise<number> {
@@ -56,6 +59,10 @@ async function main(argv: string[]): Promise<number> {
   if (command === "hook") return hookCommand(rest[0], readFileSync(0, "utf8"), process.env, (s) => console.log(s));
 
   if (command === "runner") return runnerCommand(rest);
+
+  if (command === "upgrade") return upgradeCommand(rest);
+
+  if (command === "selftest") return selfTestCommand();
 
   if (command && STUBS.includes(command)) {
     console.error(`abt ${command}: not implemented`);

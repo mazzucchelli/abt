@@ -1,4 +1,16 @@
 #!/bin/sh
 # Runs the TypeScript sources directly (Node >= 24 strips types natively).
-dir=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
+#
+# Edits in progress never affect live runs: when a pinned install exists under the abt folder
+# ($ABT_HOME, else ~/.local/state/abt), this launcher hands over to it. Set ABT_UNPINNED=1 to run
+# this checkout instead. `abt upgrade` always runs from the copy you invoked, so a broken pinned
+# install can still be replaced or rolled back.
+dir=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd -P)
+home=${ABT_HOME:-${XDG_STATE_HOME:-$HOME/.local/state}/abt}
+if [ "$1" != upgrade ] && [ -z "$ABT_UNPINNED" ] && [ -z "$ABT_PINNED_RUN" ] && [ -x "$home/current/bin/abt" ]; then
+  pinned=$(CDPATH= cd -- "$home/current" && pwd -P)
+  if [ "$pinned" != "$dir" ]; then
+    ABT_PINNED_RUN=1 exec "$pinned/bin/abt" "$@"
+  fi
+fi
 exec node --disable-warning=ExperimentalWarning "$dir/src/cli.ts" "$@"

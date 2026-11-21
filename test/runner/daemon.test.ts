@@ -198,3 +198,34 @@ test("a tracker outage at start is logged, not fatal, and the next scan picks th
   assert.equal(await m.state(id), "In review");
   await r.stop();
 });
+
+test("the scan validates PRs that touch abt files and posts an abt/validate status, once per head commit", async () => {
+  const { FakeCodeHost } = await import("../../src/codehost/fake.ts");
+  const { PrValidator } = await import("../../src/pr-validation.ts");
+  const { MemoryTrees } = await import("../../src/trees.ts");
+  const host = new FakeCodeHost();
+  host.addPr("sha1", { ".agents/abt/trees/implement.yaml": "check: branch-up-to-dat\n" });
+  const m = machine({}, { project: { prValidator: new PrValidator({ host, plugin: new MemoryTrees("defaults/trees", {}) }) } });
+  const r = m.runner();
+  await r.start();
+  await until(async () => host.statuses.length === 1);
+  assert.equal(host.statuses[0]!.status.state, "failure");
+  assert.match(host.statuses[0]!.status.description, /^\.agents\/abt\/trees\/implement\.yaml:1:8 /);
+  m.clock.advance(300_000);
+  await r.idle();
+  await new Promise((res) => setTimeout(res, 30));
+  assert.equal(host.statuses.length, 1);
+  await r.stop();
+});
+
+test("a PR validation failure on the host is logged and does not stop dispatch", async () => {
+  const bad = { sweep: async () => Promise.reject(new Error("host down")) } as unknown as import("../../src/pr-validation.ts").PrValidator;
+  const m = machine({}, { project: { prValidator: bad } });
+  const r = m.runner();
+  await r.start();
+  const id = await m.ticket();
+  await sendNudge(join(m.home, "runner.sock"), id);
+  await until(async () => (await m.state(id)) === "In review");
+  assert.ok(m.errors.some((e) => /PR validation for p: host down/.test(e)));
+  await r.stop();
+});

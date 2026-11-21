@@ -6,12 +6,16 @@ import { systemClock, systemTimers } from "../clock.ts";
 import { loadFakeWorld } from "../fake-world.ts";
 import { DecisionLog, abtHome } from "../log/store.ts";
 import { DirTrees, MemoryTrees } from "../trees.ts";
+import { InstallStore } from "../install/store.ts";
+import { loadLaunchProfile } from "../harness/claude/profile.ts";
+import { PrValidator } from "../pr-validation.ts";
 import { loadGlobalConfig } from "./config.ts";
 import { Runner, type RunnerProject } from "./daemon.ts";
 import { DispatchStore } from "./dispatch-store.ts";
 import { LaunchdAgent, systemLaunchctl } from "./launchd.ts";
 import { LockError, processAlive, runnerStatus } from "./lock.ts";
 import { sendNudge } from "./socket.ts";
+import { TranscriptRetention } from "./retention.ts";
 import { ProcessWorkers } from "./workers.ts";
 
 const USAGE = `usage: abt runner <command>
@@ -35,7 +39,8 @@ export async function runnerCommand(args: string[]): Promise<number> {
         plistDir: join(homedir(), "Library", "LaunchAgents"),
         uid: process.getuid?.() ?? 0,
         home,
-        program: [process.execPath, "--disable-warning=ExperimentalWarning", fileURLToPath(new URL("../cli.ts", import.meta.url)), "runner", "run"],
+        // The daemon runs the pinned install, never the checkout being edited; with none installed, this copy.
+        program: [process.execPath, "--disable-warning=ExperimentalWarning", pinnedCli(home), "runner", "run"],
       });
       try {
         await (sub === "start" ? agent.start() : agent.stop());
@@ -75,6 +80,12 @@ export async function runnerCommand(args: string[]): Promise<number> {
   }
 }
 
+/** The CLI of the current pinned install, through the `current` link so a launchd restart follows an upgrade or rollback; else this copy's. */
+function pinnedCli(home: string): string {
+  const dir = new InstallStore(home).currentLinkDir();
+  return dir ? join(dir, "src", "cli.ts") : fileURLToPath(new URL("../cli.ts", import.meta.url));
+}
+
 async function runDaemon(home: string, flags: string[]): Promise<number> {
   const w = flags.indexOf("--world");
   const worldFile = w >= 0 ? flags[w + 1] : undefined;
@@ -86,7 +97,7 @@ async function runDaemon(home: string, flags: string[]): Promise<number> {
   if (worldFile) {
     const world = await loadFakeWorld(worldFile);
     const { tracker, codeHost, harness, workspace } = world;
-    projects = [{ name: "fake", tracker, log, ...(config.projects[0]?.maxWorkers && { maxWorkers: config.projects[0].maxWorkers }), deps: (ticket) => ({ ticket, tracker, codeHost, harness, workspace, log, newId, plugin, project: new MemoryTrees(".agents/abt/trees", {}) }) }];
+    projects = [{ name: "fake", tracker, log, prValidator: new PrValidator({ host: codeHost, plugin, onError: (e, where) => console.error(`abt runner: ${where}: ${(e as Error).message}`) }), ...(config.projects[0]?.maxWorkers && { maxWorkers: config.projects[0].maxWorkers }), deps: (ticket) => ({ ticket, tracker, codeHost, harness, workspace, log, newId, plugin, project: new MemoryTrees(".agents/abt/trees", {}) }) }];
   } else {
     // Real code host and harness adapters are not built yet, so a listed project cannot be served.
     // Say so and keep running (launchd would only restart a daemon that exits), heartbeat and all.
@@ -97,7 +108,7 @@ async function runDaemon(home: string, flags: string[]): Promise<number> {
   }
   const runner = new Runner({
     home, clock: systemClock, timers: systemTimers, pid: process.pid, isAlive: processAlive, projects,
-    scheduling: config.scheduling, workers: new ProcessWorkers(), newId, store: new DispatchStore(join(home, "dispatch.json")), socketPath: join(home, "runner.sock"),
+    scheduling: config.scheduling, retention: new TranscriptRetention({ runsDir: loadLaunchProfile({ home: homedir(), pluginDir: fileURLToPath(new URL("../..", import.meta.url)) }).runsDir, clock: systemClock }), workers: new ProcessWorkers(), newId, store: new DispatchStore(join(home, "dispatch.json")), socketPath: join(home, "runner.sock"),
   });
   try {
     await runner.start();

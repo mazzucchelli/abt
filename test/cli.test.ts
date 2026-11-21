@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
 
 const abt = (...args: string[]) =>
-  spawnSync("bin/abt", args, { encoding: "utf8" });
+  spawnSync("bin/abt", args, { encoding: "utf8", env: { ...process.env, ABT_UNPINNED: "1" } });
 
 test("abt validate exits 0 on a valid tree", () => {
   const r = abt("validate", "test/fixtures/valid.yaml");
@@ -24,7 +24,7 @@ test("abt validate exits non-zero when the file is missing", () => {
   assert.notEqual(r.status, 0);
 });
 
-for (const sub of ["onboard", "upgrade"]) {
+for (const sub of ["onboard"]) {
   test(`abt ${sub} is a stub that exits non-zero`, () => {
     const r = abt(sub);
     assert.notEqual(r.status, 0);
