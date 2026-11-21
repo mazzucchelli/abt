@@ -3,6 +3,7 @@ import {
   LIFECYCLE_STATES,
   RISK_TIERS,
   WORK_TYPES,
+  REPLY_KIND,
   decodeComment,
   encodeComment,
   type Comment,
@@ -29,6 +30,8 @@ interface IssueNode {
   description: string | null;
   state: { name: string };
   assignee: { id: string } | null;
+  creator?: { id: string } | null;
+  url?: string;
   labels: { nodes: { name: string }[] };
   attachments: { nodes: { title: string | null; url: string }[] };
   priority?: number;
@@ -37,7 +40,7 @@ interface IssueNode {
   inverseRelations?: { nodes: { type: string; issue: { identifier: string } }[] };
 }
 
-const ISSUE_FIELDS = `identifier title description state { name } assignee { id }
+const ISSUE_FIELDS = `identifier title description state { name } assignee { id } creator { id } url
   labels { nodes { name } } attachments { nodes { title url } }
   priority createdAt inverseRelations { nodes { type issue { identifier } } }`;
 
@@ -110,6 +113,8 @@ export async function createLinearTracker(config: TrackerConfig, opts: LinearOpt
       links: n.attachments.nodes.map((a) => ({ title: a.title ?? a.url, url: a.url })),
       priority: n.priority ?? 0,
       createdAt: n.createdAt ?? "",
+      owner: n.creator?.id ?? "",
+      url: n.url ?? "",
       blockedBy: (n.inverseRelations?.nodes ?? []).filter((r) => r.type === "blocks").map((r) => r.issue.identifier),
       ...(workType && { workType }),
       ...(risk && { risk }),
@@ -181,13 +186,13 @@ export async function createLinearTracker(config: TrackerConfig, opts: LinearOpt
 
     /** The cursor is the createdAt of the newest comment seen. */
     async readCommentsSince(id, cursor): Promise<CommentPage> {
-      const all: { id: string; body: string; createdAt: string }[] = [];
+      const all: { id: string; body: string; createdAt: string; user?: { id: string } | null }[] = [];
       let after: string | null = null;
       do {
         const page: {
           issue: {
             comments: {
-              nodes: { id: string; body: string; createdAt: string }[];
+              nodes: { id: string; body: string; createdAt: string; user?: { id: string } | null }[];
               pageInfo: { hasNextPage: boolean; endCursor: string | null };
             };
           };
@@ -195,7 +200,7 @@ export async function createLinearTracker(config: TrackerConfig, opts: LinearOpt
           `query($id: String!, $filter: CommentFilter, $after: String) {
              issue(id: $id) {
                comments(filter: $filter, first: 100, after: $after) {
-                 nodes { id body createdAt } pageInfo { hasNextPage endCursor }
+                 nodes { id body createdAt user { id } } pageInfo { hasNextPage endCursor }
                }
              }
            }`,
@@ -208,7 +213,12 @@ export async function createLinearTracker(config: TrackerConfig, opts: LinearOpt
       const comments: Comment[] = [];
       for (const c of all) {
         const decoded = decodeComment(c.body);
-        if (decoded) comments.push({ id: c.id, createdAt: c.createdAt, ...decoded });
+        // A comment abt did not write is a human's reply: its body is theirs, its author the one who typed it.
+        comments.push(
+          decoded
+            ? { id: c.id, createdAt: c.createdAt, ...decoded }
+            : { id: c.id, createdAt: c.createdAt, kind: REPLY_KIND, body: c.body, author: c.user?.id ?? "" },
+        );
       }
       return { comments, cursor: all.at(-1)?.createdAt ?? cursor ?? new Date(0).toISOString() };
     },

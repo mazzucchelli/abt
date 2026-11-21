@@ -39,6 +39,10 @@ export interface Ticket {
   createdAt: string;
   /** IDs of the tickets that block this one. It is dispatched only once every one has merged. */
   blockedBy: string[];
+  /** Who owns the ticket (its creator). Only the owner's replies steer a run. */
+  owner: string;
+  /** Where a human opens the ticket. */
+  url: string;
 }
 
 export interface NewTicket {
@@ -60,7 +64,12 @@ export interface StructuredComment {
 export interface Comment extends StructuredComment {
   id: string;
   createdAt: string;
+  /** Who wrote it. Set on a human's reply; abt's own comments carry none. */
+  author?: string;
 }
+
+/** The kind a comment abt did not write is read back as. Its body is the human's own words. */
+export const REPLY_KIND = "reply";
 
 export interface CommentPage {
   comments: Comment[];

@@ -42,7 +42,9 @@ Domain terms for the AI workflow. Definitions only, no implementation detail.
 
 **Verification**: Evidence, gathered by the agent, that a change works: tests, e2e, visual regression, screenshots of the running app, and CI.
 
-**Escalation**: The agent stopping to ask the human for a confirmation or decision, because the risk of continuing alone is too high.
+**Escalation**: The agent stopping to ask the human for a confirmation or decision, because the risk of continuing alone is too high. It sets the ticket to Needs you, posts one ask-point comment and sends a content-free push (the ticket and its link only). Silence is never consent: a timeout only sends a reminder.
+
+**Owner reply**: A comment from the ticket's owner on a Needs you ticket, the only comments the runner acts on. The vocabulary is fixed: answer (a bare "yes" accepts the recommendation), abandon, re-run, raise tier. Anything else is logged as a note and does not resume the ticket.
 
 **Routing**: Choosing the model and thinking effort for a unit of work from its complexity grade, done by the runner when it dispatches the worker. Sonnet is the default; Opus is for hard work.
 
@@ -68,7 +70,7 @@ Domain terms for the AI workflow. Definitions only, no implementation detail.
 
 **Ask-point**: A moment where an agent would ask the human: the question, its recommended answer, the evidence, and whether the choice is reversible. The risk tier decides whether it is decided and logged or escalated.
 
-**Decision record**: One entry stating a single decision or outcome in a ticket's run (a tree node's result, a risk assessment, a routing choice, an ask-point, an override, a retype, an escalation, a merge, or a pivot), why it was made, and a pointer to its evidence. Never edited; a wrong record is corrected by a later one that supersedes it.
+**Decision record**: One entry stating a single decision or outcome in a ticket's run (a tree node's result, a risk assessment, a routing choice, an ask-point, an override, a retype, an escalation, a merge, a pivot, or a note), why it was made, and a pointer to its evidence. Never edited; a wrong record is corrected by a later one that supersedes it.
 
 **Decision log**: The append-only sequence of a ticket's decision records, read live and in post-hoc review. Reviewing it is how the human audits a run; there is no separate audit trail.
 
