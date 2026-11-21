@@ -62,6 +62,9 @@ function remote() {
   execFileSync("git", ["init", "--bare", "-b", "main", origin]);
   const dir = join(root, "repo");
   execFileSync("git", ["clone", origin, dir], { stdio: "ignore" });
+  // The rebase rewrites commits, so it needs a committer identity; CI machines have none configured.
+  sh(dir, "config", "user.name", "t");
+  sh(dir, "config", "user.email", "t@t");
   writeFileSync(join(dir, "a.txt"), "a\n");
   writeFileSync(join(dir, "b.txt"), "b\n");
   sh(dir, "add", "."); sh(dir, "commit", "-m", "init"); sh(dir, "push", "origin", "HEAD:main");
