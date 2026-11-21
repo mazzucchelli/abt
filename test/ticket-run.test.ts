@@ -189,9 +189,9 @@ test("re-running after a crash in the middle of the worker step resumes from the
   assert.deepEqual(w.workspace.events, [`add ${w.id} feat/fake-1-add-the-thing`, `remove ${w.id}`]);
 });
 
-test("a ticket that is not Todo or In progress is left alone", async () => {
+test("a ticket that is not Todo, In progress or In review is left alone", async () => {
   const w = await world();
-  await w.tracker.setState(w.id, "In review");
+  await w.tracker.setState(w.id, "Done");
   const r = await w.run();
   assert.equal(r.result, "skipped");
   assert.deepEqual(w.log.read(w.id), []);
@@ -223,14 +223,14 @@ test("a crash after the PR was opened but before cleanup still cleans up and sum
 
 test("with risk assessment wired in, intake assesses the ticket, labels it and logs the record", async () => {
   const w = await world();
-  const t = await w.tracker.createTicket({ title: "fix: add a column", body: "Needs a new migration in db/migrations/2026_add_col.sql." });
+  const t = await w.tracker.createTicket({ title: "fix: refresh the lockfile", body: "Refresh the lockfile in docs/package-lock.json." });
   const classifier = { classify: async () => ({ tier: "low" as const, confidence: 0.9, reasons: ["small"] }) };
   const r = await runTicket({ ...w.deps(), ticket: t.id, risk: { classifier } });
   assert.equal(r.result, "open");
   const rec = w.log.read(t.id).find((x) => x.kind === "risk-assessment")!;
-  assert.equal(rec.payload.tier, "high");
+  assert.equal(rec.payload.tier, "medium");
   assert.equal(rec.payload.moment, "intake");
-  assert.equal((await w.tracker.readTicket(t.id)).risk, "high");
+  assert.equal((await w.tracker.readTicket(t.id)).risk, "medium");
   const summary = (await w.tracker.readCommentsSince(t.id)).comments.find((c) => c.kind === "summary")!;
-  assert.equal(summary.data!.tier, "high");
+  assert.equal(summary.data!.tier, "medium");
 });

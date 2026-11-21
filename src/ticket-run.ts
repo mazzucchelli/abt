@@ -1,12 +1,14 @@
 import { runPass, type PassDeps } from "./pass.ts";
 import { treeViolations } from "./invariants.ts";
+import { loadPolicy, projectLock, sha256, type PolicyStore } from "./landing/policy.ts";
 import type { DecisionRecord, Result } from "./log/record.ts";
-import { assessTicket, type RiskDeps } from "./risk/assess.ts";
+import { assessTicket, effectiveTier, type RiskDeps } from "./risk/assess.ts";
 import { tierFor } from "./routing.ts";
 import { ticketFacts } from "./runner/scheduler.ts";
 import { postAskPoint, resumeFromReplies } from "./escalation.ts";
 import { postSummary } from "./summary.ts";
 import type { Notifier } from "./notify/contract.ts";
+import { isScalar, parseDocument, visit } from "yaml";
 import { parseTree, TreeError } from "./tree.ts";
 import { LayeredTrees, resolveTree, type TreeStore } from "./trees.ts";
 
@@ -21,6 +23,8 @@ export interface TicketRunDeps extends Omit<PassDeps, "tree" | "run" | "file"> {
   escalationTimeoutMs?: number;
   /** Risk assessment at intake: the classifier and the project's risk map. Without it the tier is the ticket's own, else medium. */
   risk?: Pick<RiskDeps, "classifier" | "map" | "timeoutMs" | "minConfidence" | "maxPatchChars">;
+  /** The project's merge policy, read from its default branch. Without one abt never merges. */
+  policy?: PolicyStore;
 }
 
 export interface TicketRunResult {
@@ -61,6 +65,7 @@ export async function runTicket(deps: TicketRunDeps): Promise<TicketRunResult> {
     await finish(deps, "open");
     return { run, result: "open", terminal: true };
   }
+  if (state === "In review") return runLanding(deps, run);
   if (state !== "Todo" && state !== "In progress") return { run, result: "skipped", terminal: false };
 
   const trees = new LayeredTrees(deps.project, deps.plugin);
@@ -82,6 +87,13 @@ export async function runTicket(deps: TicketRunDeps): Promise<TicketRunResult> {
 
   await assessOnce(deps, run);
 
+  // A high-risk ticket is a human's call: it stops here, before it is claimed and before any worker runs.
+  if (effectiveTier(log.read(ticket))?.tier === "high") {
+    escalate(deps, run, "high risk: a human decides before any work starts", "a human to approve the work, or to lower the risk tier");
+    await finish(deps, "fail", "Needs you");
+    return { run, result: "fail", terminal: true };
+  }
+
   const claim = await pass("claim");
   if (claim.result !== "ok") return { run, result: claim.result, terminal: false };
   const claimed = (await tracker.readTicket(ticket)).claimed && (await workspace.find(ticket)) !== undefined;
@@ -100,6 +112,69 @@ export async function runTicket(deps: TicketRunDeps): Promise<TicketRunResult> {
   if (!succeeded) escalate(deps, run, failureReason(log.read(ticket), run, impl.result, "implement"), "a human to look at the failed run");
   await finish(deps, impl.result, succeeded ? undefined : "Needs you");
   return { run, result: impl.result, terminal: true };
+}
+
+/**
+ * One landing run for a ticket whose PR is open: the land tree, under the project's merge policy. With no agreed
+ * policy, or in pr-only mode, nothing runs and the PR stays open. A land tree that is not the one the policy was
+ * agreed with blocks merging and sends the ticket to Needs you. A merged PR is Done.
+ */
+async function runLanding(deps: TicketRunDeps, run: string): Promise<TicketRunResult> {
+  const { tracker, codeHost, log, ticket } = deps;
+  const agreed = await loadPolicy(deps.policy);
+  if (agreed.status !== "agreed" || agreed.policy.mode !== "merge") {
+    if ((await codeHost.readFacts(ticket)).merged) {
+      await finish(deps, "ok", "Done");
+      return { run, result: "ok", terminal: true };
+    }
+    const why =
+      agreed.status === "none" ? "no merge policy: the PR stays open and abt does not merge it"
+      : agreed.status === "invalid" ? `${agreed.file} is invalid (${agreed.problems.join("; ")}): the PR stays open and abt does not merge it`
+      : "the merge policy's mode is pr-only: the PR stays open and abt does not merge it";
+    // Polled every minute: say it once, not on every poll.
+    if (log.read(ticket).findLast((r) => r.node === "land")?.why !== why) {
+      log.append(ticket, { run, node: "land", kind: "node-outcome", decision: "land", why, evidence: null, result: "open", payload: { nodeKind: "action" } });
+    }
+    return { run, result: "open", terminal: true };
+  }
+
+  const trees = new LayeredTrees(deps.project, deps.plugin);
+  let loaded: { source: string; file: string };
+  try {
+    loaded = await resolveTree("land", deps.project, deps.plugin);
+    const errors = treeViolations(await parseTree(loaded.source, loaded.file, trees), loaded.file);
+    // The policy's hash covers this file only, so a subtree it pulled in could change unseen.
+    let uses = false;
+    visit(parseDocument(loaded.source), { Pair(_, pair) { if (isScalar(pair.key) && pair.key.value === "use") uses = true; } });
+    if (uses) errors.push(`${loaded.file}: the land tree may not use subtrees: land_tree_hash covers this file only`);
+    if (errors.length > 0) return refuse(deps, run, "land", errors);
+  } catch (e) {
+    if (e instanceof TreeError || /^no tree named/.test((e as Error).message)) {
+      return refuse(deps, run, "land", (e as Error).message.split("\n"));
+    }
+    throw e;
+  }
+  const treeHash = sha256(loaded.source);
+  if (treeHash !== agreed.policy.land_tree_hash) {
+    const why = `${loaded.file} (${treeHash}) does not match land_tree_hash (${agreed.policy.land_tree_hash}) in ${agreed.file}; merging is blocked`;
+    escalate(deps, run, why, "a human to review the land tree and, if it is right, update land_tree_hash in the merge policy");
+    await tracker.postComment(ticket, { kind: "tree-error", body: `The "land" tree was refused:\n\n${why}`, data: { tree: "land", errors: [why] } });
+    await finish(deps, "fail", "Needs you");
+    return { run, result: "fail", terminal: true };
+  }
+
+  const landing = { policy: agreed.policy, policyHash: agreed.hash, treeHash, lock: projectLock(deps.policy!) };
+  const r = await runPass({ ...deps, run, trees, tree: loaded.source, file: loaded.file, landing });
+  if (r.result === "ok") {
+    await finish(deps, "ok", "Done");
+    return { run, result: "ok", terminal: true };
+  }
+  if ((await tracker.readTicket(ticket)).state === "Needs you") {
+    await finish(deps, r.result);
+    return { run, result: r.result, terminal: true };
+  }
+  // Waiting on CI or an approval, or the checks failed: the PR stays open and the next poll lands it from the facts.
+  return { run, result: r.result, terminal: false };
 }
 
 /** Risk is assessed once per ticket, at intake. */

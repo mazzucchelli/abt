@@ -1,9 +1,14 @@
-import type { CheckName, CodeHost, CodeHostFacts, CommitStatus, OpenPr, PrHost } from "./contract.ts";
+import { HeadMovedError, type CheckName, type CodeHost, type CodeHostFacts, type CommitStatus, type OpenPr, type PrHost } from "./contract.ts";
 
 /** In-memory CodeHost for tests. Facts are set from outside; writes change them. */
 export class FakeCodeHost implements CodeHost, PrHost {
   #facts = new Map<string, CodeHostFacts>();
   #prs: { pr: OpenPr; contents: Record<string, string> }[] = [];
+  /** Test hooks: run just before facts are read, and just before a merge is attempted. */
+  onRead?: (ticket: string) => void;
+  beforeMerge?: (ticket: string) => void;
+  /** Every merge that went through, with the head it matched. */
+  readonly merges: { ticket: string; sha: string }[] = [];
   /** Every status posted, in order. */
   readonly statuses: { sha: string; status: CommitStatus }[] = [];
 
@@ -40,6 +45,7 @@ export class FakeCodeHost implements CodeHost, PrHost {
   }
 
   async readFacts(ticket: string): Promise<CodeHostFacts> {
+    this.onRead?.(ticket);
     return structuredClone(this.#get(ticket));
   }
 
@@ -50,8 +56,12 @@ export class FakeCodeHost implements CodeHost, PrHost {
     return f.pr;
   }
 
-  async merge(ticket: string): Promise<void> {
-    this.#get(ticket).merged = true;
+  async merge(ticket: string, opts: { matchHeadSha: string }): Promise<void> {
+    this.beforeMerge?.(ticket);
+    const f = this.#get(ticket);
+    if (f.headSha !== opts.matchHeadSha) throw new HeadMovedError(`head is ${f.headSha ?? "unknown"}, not ${opts.matchHeadSha}`);
+    f.merged = true;
+    this.merges.push({ ticket, sha: opts.matchHeadSha });
   }
 
   #get(ticket: string): CodeHostFacts {

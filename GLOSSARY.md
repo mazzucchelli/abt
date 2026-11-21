@@ -28,7 +28,7 @@ Domain terms for the AI workflow. Definitions only, no implementation detail.
 
 **Autonomous merge**: An agent merging its own PR into the default branch after every gate in the project's agreed merge policy has passed. A human approval can be one of those gates; the no-human case is the policy with zero required approvals. Never a direct push.
 
-**Merge policy**: The per-project agreement, made when the workflow is first initiated there, of which gates must pass before an autonomous merge (checks, human approvals, enforcement mode, compensating controls, risk cap), or that the agent never merges. Without one, the agent does not merge.
+**Merge policy**: The per-project agreement, kept in a file separate from the adapter doc and made when the workflow is first initiated there, of when an autonomous merge may happen: which checks and human approvals are required, who enforces them, the compensating controls, the risk cap and whether abt merges at all or only opens the PR. Without an agreed policy, or when it says PR only, the agent does not merge.
 
 **Merge-policy preset**: A ready-made starting merge policy that onboarding proposes from a project's probed facts: pr-only (the fallback), solo-self, solo-server or team-reviewed. The human edits it before agreeing.
 
@@ -93,3 +93,7 @@ Domain terms for the AI workflow. Definitions only, no implementation detail.
 **Pin**: A recorded fingerprint of one of a project's protected abt files (merge policy, adapter doc, trees, check scripts), kept outside the project so it can't be changed together with the file it guards. A file that no longer matches its pin stops the runner for that project until the human looks. Pins move only when the human merges a change to the file.
 
 **Pinned install**: The fixed release of abt that the runner and its workers run, separate from any copy being edited. It changes only on an explicit upgrade, and the human's own sessions use the same release.
+
+**Land tree**: The behavior tree that decides whether a verified PR merges. The merge policy is agreed with one specific land tree; a different one blocks merging and sends the ticket to Needs you.
+
+**Runner-merge**: The one way a PR gets merged: the runner re-checks the PR right before merging and only merges the exact commit it checked. No tree can merge any other way.

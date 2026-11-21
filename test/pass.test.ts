@@ -104,13 +104,12 @@ fallback:
   assert.equal(r.result, "fail");
 });
 
-test("actions write to the world: claim, open-pr (links the PR on the ticket), merge, cleanup", async () => {
+test("actions write to the world: claim, open-pr (links the PR on the ticket), cleanup", async () => {
   const w = await world();
   const r = await w.pass(`
 seq:
   - action: claim
   - action: open-pr
-  - action: merge
   - action: cleanup
 `);
   assert.equal(r.result, "ok");
@@ -119,8 +118,7 @@ seq:
   assert.deepEqual(t.links.map((l) => l.url), [`https://fake.host/${w.ticket}/pr/1`]);
   const recs = w.records();
   assert.equal(recs["root/1"]!.evidence, `https://fake.host/${w.ticket}/pr/1`);
-  assert.equal(recs["root/2"]!.why, "merged");
-  assert.equal(recs["root/3"]!.why, "cleaned up");
+  assert.equal(recs["root/2"]!.why, "cleaned up");
 });
 
 test("an unknown action fails and says so", async () => {

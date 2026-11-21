@@ -1,5 +1,8 @@
 import type { CodeHost } from "./codehost/contract.ts";
-import type { CheckName } from "./codehost/contract.ts";
+import { HeadMovedError, type CheckName, type CodeHostFacts } from "./codehost/contract.ts";
+import type { MergePolicy, Mutex } from "./landing/policy.ts";
+import { effectiveTier } from "./risk/assess.ts";
+import { RISK_TIERS } from "./tracker/contract.ts";
 import type { FeedbackConfig, HarnessAdapter, UsageLimit } from "./harness/contract.ts";
 import type { Judge } from "./judge/contract.ts";
 import type { DecisionRecord, Result } from "./log/record.ts";
@@ -12,6 +15,16 @@ import { routeWorker, type RoutingDeps } from "./routing.ts";
 import type { Ticket, Tracker } from "./tracker/contract.ts";
 import { branchName } from "./workspace/branch.ts";
 import type { Workspace } from "./workspace/contract.ts";
+
+/** What landing needs: the agreed merge policy and the hashes `runner-merge` records. Only a landing pass has one. */
+export interface LandingContext {
+  policy: MergePolicy;
+  policyHash: string;
+  /** Hash of the land tree being run. */
+  treeHash: string;
+  /** One merge at a time per project. */
+  lock: Mutex;
+}
 
 export interface PassDeps {
   /** Behavior-tree YAML. */
@@ -38,6 +51,8 @@ export interface PassDeps {
   reviewAuto?: boolean;
   /** Complexity routing: the grade judge, the risk map, thresholds and the pinned model IDs. Without it rule floors alone grade a ticket. */
   routing?: RoutingDeps;
+  /** Set only for the land tree, and only under an agreed policy. Without it no action merges. */
+  landing?: LandingContext;
 }
 
 export interface PassResult {
@@ -51,6 +66,8 @@ interface Outcome {
   evidence?: string;
   worker?: string;
   usageLimit?: UsageLimit;
+  /** The PR head a landing check or merge was about. */
+  headSha?: string;
 }
 
 /**
@@ -206,6 +223,8 @@ class Pass {
     if (node.kind === "check") {
       const tracked = await this.#trackerCheck(node.name);
       if (tracked) return tracked;
+      const landing = await this.#landingCheck(node.name);
+      if (landing) return landing;
       const facts = await codeHost.readFacts(ticket);
       const verdict = node.name === "pr-exists" ? facts.pr !== undefined : facts.checks[node.name as CheckName];
       if (verdict === undefined) return { result: "inconclusive", why: `no fact for ${node.name}` };
@@ -261,21 +280,95 @@ class Pass {
         await tracker.setState(ticket, "In review");
         return { result: "ok", why: facts.pr ? "PR already open" : "opened PR", evidence: url };
       }
-      case "merge": {
-        const facts = await codeHost.readFacts(ticket);
-        if (facts.merged) return { result: "ok", why: "already merged" };
-        if (!facts.pr) return { result: "fail", why: "no PR to merge" };
-        await codeHost.merge(ticket);
-        return { result: "ok", why: "merged", evidence: facts.pr };
+      case "runner-merge":
+        return this.#runnerMerge();
+      case "await-approval": {
+        if ((await tracker.readTicket(ticket)).state !== "In review") await tracker.setState(ticket, "In review");
+        return { result: "running", why: "waiting for a human to approve the PR" };
       }
       case "land":
-        return { result: "open", why: "land is a stub: the PR is left open" };
+        return { result: "open", why: "the PR is open; the runner lands it under the project's merge policy" };
       case "cleanup":
         await workspace.remove(ticket);
         return { result: "ok", why: "cleaned up" };
       default:
         return { result: "fail", why: `unknown action "${node.name}"` };
     }
+  }
+
+  /** The latest green `ci-check-green` outcome of this run, which names the head SHA the checks were verified on. */
+  #greenCheck(): DecisionRecord | undefined {
+    return this.#d.log.read(this.#d.ticket).findLast((r) => r.run === this.#run && r.payload.nodeKind === "check" && r.decision === "check ci-check-green" && r.result === "ok");
+  }
+
+  /** Landing checks. Undefined for any other check. Without an agreed policy they are inconclusive: nothing lands. */
+  async #landingCheck(name: string): Promise<Outcome | undefined> {
+    const { codeHost, ticket, landing } = this.#d;
+    if (name !== "ci-check-green" && name !== "head-sha-unchanged" && name !== "pr-approved" && name !== "risk-within-cap" && name !== "pr-merged") return undefined;
+    if (name === "pr-merged") {
+      const merged = (await codeHost.readFacts(ticket)).merged;
+      return { result: merged ? "ok" : "fail", why: merged ? "the PR is merged" : "the PR is not merged" };
+    }
+    if (!landing) return { result: "inconclusive", why: `${name}: no agreed merge policy` };
+    const { policy } = landing;
+    if (name === "risk-within-cap") {
+      const tier = effectiveTier(this.#d.log.read(ticket))?.tier;
+      if (tier === undefined) return { result: "fail", why: "no risk tier recorded" };
+      if (policy.risk_cap === "none") return { result: "fail", why: `the policy lets no tier merge without approval (tier ${tier})` };
+      const within = RISK_TIERS.indexOf(tier) <= RISK_TIERS.indexOf(policy.risk_cap);
+      return { result: within ? "ok" : "fail", why: within ? `tier ${tier} is within the ${policy.risk_cap} cap` : `tier ${tier} is above the ${policy.risk_cap} cap` };
+    }
+    const facts = await codeHost.readFacts(ticket);
+    if (name === "pr-approved") {
+      const have = facts.approvals ?? 0;
+      return { result: have >= policy.gates.approvals ? "ok" : "fail", why: `${have} of ${policy.gates.approvals} human approvals` };
+    }
+    if (name === "ci-check-green") {
+      if (!facts.headSha) return { result: "inconclusive", why: "no head SHA known for the PR" };
+      return { ...requiredChecks(policy, facts), headSha: facts.headSha };
+    }
+    // head-sha-unchanged: the head must still be the commit the checks were verified on in this run.
+    const checked = this.#greenCheck();
+    const sha = checked?.payload.headSha;
+    if (typeof sha !== "string") return { result: "inconclusive", why: "no green check recorded in this run to compare the head with" };
+    return facts.headSha === sha
+      ? { result: "ok", why: `head is still ${sha}`, headSha: sha }
+      : { result: "fail", why: `head moved from ${sha} to ${facts.headSha ?? "unknown"} since the checks ran` };
+  }
+
+  /**
+   * The only action that merges. Under the project's lock it re-reads the PR and refuses unless the branch is
+   * up to date and every required check is green on the head the green check was recorded for, then squash-merges
+   * with the head SHA pinned, so a head that moves in between aborts the merge.
+   */
+  async #runnerMerge(): Promise<Outcome> {
+    const { codeHost, ticket, landing } = this.#d;
+    if (!landing) return { result: "fail", why: "refused: no agreed merge policy, abt never merges without one" };
+    const { policy } = landing;
+    if (policy.mode !== "merge") return { result: "fail", why: `refused: the policy's mode is ${policy.mode}` };
+    if (landing.treeHash !== policy.land_tree_hash) return { result: "fail", why: "refused: the land tree does not match the policy's land_tree_hash" };
+    return landing.lock.run(async (): Promise<Outcome> => {
+      const facts = await codeHost.readFacts(ticket);
+      if (facts.merged) return { result: "ok", why: "already merged" };
+      if (!facts.pr) return { result: "fail", why: "no PR to merge" };
+      if (!facts.headSha) return { result: "fail", why: "no head SHA known for the PR" };
+      const checked = this.#greenCheck()?.payload.headSha;
+      if (checked !== facts.headSha) return { result: "fail", why: `aborted: head is ${facts.headSha}, but the checks were verified on ${String(checked)}`, headSha: facts.headSha };
+      if (facts.checks["branch-up-to-date"] !== true) return { result: "fail", why: "the branch is not up to date with the default branch" };
+      const green = requiredChecks(policy, facts);
+      if (green.result !== "ok") return { result: "fail", why: green.why, headSha: facts.headSha };
+      try {
+        await codeHost.merge(ticket, { matchHeadSha: facts.headSha });
+      } catch (e) {
+        if (e instanceof HeadMovedError) return { result: "fail", why: `aborted: ${e.message}`, headSha: facts.headSha };
+        throw e;
+      }
+      this.#d.log.append(ticket, {
+        run: this.#run, node: null, kind: "merge", decision: "runner merged the PR", why: `squash-merged with the head pinned to ${facts.headSha}`, evidence: facts.pr, result: "ok",
+        payload: { pr: facts.pr, sha: facts.headSha, policy_hash: landing.policyHash, tree_hash: landing.treeHash },
+      });
+      return { result: "ok", why: "merged", evidence: facts.pr, headSha: facts.headSha };
+    });
   }
 
   async #worker(node: TreeNode & { name: string }): Promise<Outcome> {
@@ -409,13 +502,27 @@ class Pass {
       why: o.why,
       evidence: o.evidence ?? null,
       result: o.result,
-      payload: { nodeKind: node.kind, ...(o.worker && { worker: o.worker }), ...(o.usageLimit && { usageLimit: o.usageLimit }) },
+      payload: { nodeKind: node.kind, ...(o.worker && { worker: o.worker }), ...(o.headSha && { headSha: o.headSha }), ...(o.usageLimit && { usageLimit: o.usageLimit }) },
     });
   }
 }
 
 /** Override targets that reset every node's retry count: the owner re-ran the tree, answered an escalation or raised the tier. */
 const OWNER_RESET_TARGETS = new Set(["run", "escalation", "risk"]);
+
+/** Every job the policy requires is a success on the PR's head commit. Pending is inconclusive, anything else fails. */
+function requiredChecks(policy: MergePolicy, facts: CodeHostFacts): Outcome {
+  const head = facts.headSha;
+  let pending: string | undefined;
+  for (const name of policy.gates.required_checks) {
+    const job = facts.jobs?.[name];
+    if (!job || job.sha !== head) return { result: "fail", why: `required check "${name}" has no result on head ${String(head)}` };
+    if (job.state === "failure") return { result: "fail", why: `required check "${name}" failed on ${head}` };
+    if (job.state === "pending") pending ??= name;
+  }
+  if (pending) return { result: "inconclusive", why: `required check "${pending}" is still running on ${head}` };
+  return { result: "ok", why: `${policy.gates.required_checks.join(", ")} green on ${head}` };
+}
 
 /** The title of the link a research worker puts on the ticket for its findings. */
 export const FINDINGS_LINK = "Findings";
