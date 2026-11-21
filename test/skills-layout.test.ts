@@ -30,7 +30,9 @@ const PROCEDURES = [
   "implement", "tdd", "code-review", "diagnosing-bugs", "research", "spike", "pr", "refactoring",
   "setup-pre-commit", "setup-ts-deep-modules", "grilling", "domain-modeling", "spec-writing", "ticket-splitting", "triaging",
 ];
-const COMMANDS = ["enqueue", "grill-with-docs", "to-spec", "to-tickets", "triage"];
+const COMMANDS = ["enqueue", "grill-with-docs", "onboard", "to-spec", "to-tickets", "triage"];
+// The rule: a command wraps a procedure, except these, which drive the abt CLI and wrap none.
+const CLI_COMMANDS = ["enqueue", "onboard"];
 const REFERENCES = ["codebase-design", "writing-for-agents", "experience-first"];
 
 test("plugin.json registers every procedure folder and nothing else as a skill", () => {
@@ -57,7 +59,9 @@ test("the commands folder is the whole menu, and each command is a thin visible 
     const fm = frontmatter(text);
     assert.ok(fm?.description, `${c} has a description`);
     assert.notEqual(fm["user-invocable"], "false", `${c} is user-invocable`);
-    if (c !== "enqueue") {
+    if (CLI_COMMANDS.includes(c)) {
+      assert.match(text, new RegExp(`\`abt ${c}\\b`), `${c} drives the abt CLI`);
+    } else {
       const m = /procedures\/([a-z-]+)\/SKILL\.md/.exec(text);
       assert.ok(m && PROCEDURES.includes(m[1]!), `${c} runs a procedure`);
       assert.ok(text.split("\n").length < 25, `${c} stays thin`);

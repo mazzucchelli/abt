@@ -35,7 +35,7 @@ async function world() {
   const { id } = await tracker.createTicket({ title: "feat: add the thing", body: "details", risk: "low" });
   const codeHost = new FakeCodeHost();
   const harness = new FakeHarness();
-  harness.script("tdd-afk", { result: "ok" });
+  harness.script("tdd", { result: "ok" });
   harness.script("to-spec", specWriter(tracker));
   const workspace = new FakeWorkspace();
   let n = 0;
