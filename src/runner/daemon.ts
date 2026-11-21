@@ -4,7 +4,9 @@ import type { DecisionLog } from "../log/store.ts";
 import type { Tracker } from "../tracker/contract.ts";
 import { runTicket, type TicketRunDeps } from "../ticket-run.ts";
 import type { Ticket } from "../tracker/contract.ts";
+import type { PrValidator } from "../pr-validation.ts";
 import { DispatchStore } from "./dispatch-store.ts";
+import type { TranscriptRetention } from "./retention.ts";
 import { RunnerLock, runnerStatus, type RunnerStatus } from "./lock.ts";
 import {
   DEFAULT_GLOBAL_CAP, DEFAULT_WALL_CLOCK_MINUTES, admit, orderCandidates, ticketFacts,
@@ -30,6 +32,8 @@ export interface RunnerProject {
   maxWorkers?: number;
   /** The launch profile its workers run under; a usage limit pauses dispatch per profile. */
   profile?: string;
+  /** Validates the project's PRs that touch abt files and posts their `abt/validate` status. */
+  prValidator?: PrValidator;
 }
 
 export interface RunnerDeps {
@@ -45,6 +49,8 @@ export interface RunnerDeps {
   store: DispatchStore;
   /** Slot cap and wall-clock caps. Defaults: 3 slots; 45, 90 and 180 minutes by grade. */
   scheduling?: SchedulingConfig;
+  /** Per-run transcript retention: pruned 30 days after a ticket's terminal state. Omit for none. */
+  retention?: TranscriptRetention;
   /** Where the nudge socket listens. Omit for no socket. */
   socketPath?: string;
   onError?: (error: unknown, where: string) => void;
@@ -155,7 +161,31 @@ export class Runner {
 
   /** New work: abt-marked Todo tickets enqueued while the runner was busy or down. */
   #scan(): Promise<void> {
-    return this.#tick("scan");
+    return this.#tick("scan").finally(() => this.#housekeeping());
+  }
+
+  /** Off the dispatch path, so a code host or disk problem here never holds up work: PR validation, then transcript retention. */
+  async #housekeeping(): Promise<void> {
+    for (const project of this.#d.projects) {
+      try {
+        await project.prValidator?.sweep();
+      } catch (e) {
+        this.#error(e, `PR validation for ${project.name}`);
+      }
+    }
+    const retention = this.#d.retention;
+    if (!retention) return;
+    try {
+      for (const { ticket, since } of retention.tickets()) {
+        const state = (await this.#owner(ticket))?.ticket.state;
+        if (state === undefined) continue; // no served project knows it: leave it alone
+        if (state === "Done" || state === "Abandoned") retention.markTerminal(ticket);
+        else if (since !== undefined) retention.clearTerminal(ticket);
+      }
+      retention.prune();
+    } catch (e) {
+      this.#error(e, "transcript retention");
+    }
   }
 
   #tick(mode: Tick): Promise<void> {

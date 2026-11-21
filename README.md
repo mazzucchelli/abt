@@ -30,6 +30,25 @@ Scheduling protects the shared subscription window. At most 3 workers run at onc
 
 Dispatch state is private and disposable. On start the runner clears it, kills orphan workers (processes carrying `--abt-ticket=<id>`) and re-runs their tickets from the tracker and the decision log; the dead worker is logged as an `error`, which uses no retry. Real code host and harness adapters are not built yet, so `abt runner run --world <world.json>` runs the daemon against a fake world.
 
+## Pinned install and `abt upgrade`
+
+Edits in progress never affect live runs. Workers, the daemon and interactive sessions load a pinned install under the abt folder: one install per tag in `$ABT_HOME/installs/<tag>/` and a `current` pointer. `bin/abt` hands over to `current` when one exists (set `ABT_UNPINNED=1` to run the checkout instead), and `abt runner start` points launchd at it.
+
+```bash
+bin/abt upgrade v1.2.0 --from <git url or path>   # install the tag, self-test it, switch current only if it passes
+bin/abt upgrade v1.1.0                            # already installed: a rollback, current just moves
+bin/abt upgrade --list                            # installed tags, current marked with *
+bin/abt selftest                                  # the startup self-test of this install (what upgrade runs)
+```
+
+`--from` defaults to `$ABT_REPO`, else the origin of the abt that is running. A failing self-test leaves `current` unchanged and removes the attempt.
+
+## PR validation and retention
+
+The runner validates open PRs that touch abt files (`.agents/abt/trees/*.yaml`, `workflow.md`, `policy.yaml`, `checks/`) and posts an `abt/validate` commit status on the head commit, once per head: failing with the first `file:line:col` error, or passing. No CI workflow is added to the project repo.
+
+Decision logs are kept forever. Per-run transcripts (`<runs dir>/<ticket>/`) are pruned 30 days after the ticket reaches a terminal state (Done or Abandoned); the runner checks on its 5 minute scan.
+
 ## Tracker sandbox test
 
 The tracker contract suite always runs against the in-memory fake. To run it against a real Linear sandbox team (it creates tickets there), point it at an adapter doc and set its credential:

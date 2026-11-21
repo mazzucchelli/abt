@@ -24,3 +24,31 @@ export interface CodeHost {
   openPr(ticket: string, body?: string): Promise<string>;
   merge(ticket: string): Promise<void>;
 }
+
+/** An open pull request, as far as validating it goes. */
+export interface OpenPr {
+  number: number;
+  url: string;
+  headSha: string;
+  /** Repo-relative paths the PR changes. */
+  files: string[];
+}
+
+export type StatusState = "pending" | "success" | "failure" | "error";
+
+/** A commit status, as the code host's status API takes it. */
+export interface CommitStatus {
+  context: string;
+  state: StatusState;
+  /** One line; code hosts cap it (GitHub: 140 characters). */
+  description: string;
+  targetUrl?: string;
+}
+
+/** What the runner needs from a code host to validate PRs: no CI workflow in the project repo. */
+export interface PrHost {
+  openPrs(): Promise<OpenPr[]>;
+  /** A file as it is at the PR's head commit; undefined when the PR does not have it. */
+  readFile(pr: OpenPr, path: string): Promise<string | undefined>;
+  postStatus(sha: string, status: CommitStatus): Promise<void>;
+}
