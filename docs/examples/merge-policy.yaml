@@ -20,6 +20,11 @@ evidence:
   self_certification: false
 risk_map:
   rules: []
+  # Extra pairings of a module with the checks on the default branch that cover it, beyond the sibling-test
+  # naming convention. A project can only tighten the fixed rules (dependencies, CI/config and migrations
+  # are never low; a baseline update or visual diff is at least medium); a rule that lowers one fails validation.
+  pairing: []
+  # - { glob: "src/billing/**", checks: [test/billing/invoice.test.ts] }
   max_lines: 400
   max_files: 15
 # A snapshot of the project when this policy was agreed.

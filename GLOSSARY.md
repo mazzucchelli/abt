@@ -96,7 +96,7 @@ Domain terms for the AI workflow. Definitions only, no implementation detail.
 
 **Pivot**: An agent abandoning an approach it had started for a different one, recorded with what triggered it.
 
-**Covered check**: A committed check, already on the default branch, that would fail if the touched surface broke. The risk map pairs each surface with its covered check.
+**Covered check**: A committed check, already on the default branch, that would fail if the touched surface broke. A source file is paired with its covered check by naming convention (a sibling test that a required CI job runs), and the risk map can add explicit pairings; only an e2e spec on the touched route covers UI. Deleting or renaming a covering check voids the pairing.
 
 **Evidence gap**: A touched surface with no covered check, or a required piece of evidence that is missing. A gap makes the change at least medium risk.
 
