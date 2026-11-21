@@ -68,7 +68,7 @@ test("the 5 minute scan picks up a new Todo ticket and not before", async () => 
 
 test("the 60 second poll re-runs a waiting ticket", async () => {
   const m = machine();
-  m.harness.script("tdd-afk", { result: "running" }, { result: "ok" });
+  m.harness.script("tdd", { result: "running" }, { result: "ok" });
   const id = await m.ticket();
   const r = m.runner();
   await r.start();
@@ -85,7 +85,7 @@ test("the 60 second poll re-runs a waiting ticket", async () => {
 
 test("a worker exiting triggers a pass for its ticket", async () => {
   const m = machine();
-  m.harness.script("tdd-afk", { result: "running" }, { result: "ok" });
+  m.harness.script("tdd", { result: "running" }, { result: "ok" });
   const id = await m.ticket();
   const r = m.runner();
   await r.start();
@@ -109,13 +109,13 @@ test("work queued while the daemon was down is picked up when it starts", async 
 });
 
 /** Two attempts allowed: one is already used by a fail, so a counted orphan would exhaust the retry. */
-const RETRY_TREE = "id: implement\nseq:\n  - retry: 2\n    do:\n      agent: tdd-afk\n  - action: open-pr\n";
+const RETRY_TREE = "id: implement\nseq:\n  - retry: 2\n    do:\n      agent: tdd\n  - action: open-pr\n";
 const AGENT = "implement/0/0";
 
 /** A worker fails once, a second one is mid-run, the daemon dies leaving it orphaned, a new daemon starts. */
 async function restartWithOrphan(deleteStore: boolean) {
   const m = machine({ implement: RETRY_TREE });
-  m.harness.script("tdd-afk", { result: "fail", why: "red" }, { result: "running" });
+  m.harness.script("tdd", { result: "fail", why: "red" }, { result: "running" });
   const id = await m.ticket();
   const first = m.runner();
   await first.start();
@@ -127,7 +127,7 @@ async function restartWithOrphan(deleteStore: boolean) {
   await first.stop();
   writeFileSync(join(m.home, "runner.lock"), JSON.stringify({ pid: 999 }));
   m.workers.spawn(4242, id);
-  m.harness.script("tdd-afk", { result: "ok" });
+  m.harness.script("tdd", { result: "ok" });
   if (deleteStore) rmSync(join(m.home, "dispatch.json"), { force: true });
   const second = m.runner();
   await second.start();
@@ -136,7 +136,7 @@ async function restartWithOrphan(deleteStore: boolean) {
   const outcome = {
     killed: m.workers.killed,
     state: await m.state(id),
-    requests: m.harness.requests.map((q) => ({ skill: q.skill, session: q.session !== undefined })),
+    requests: m.harness.requests.map((q) => ({ procedure: q.procedure, session: q.session !== undefined })),
     log: records.map((x) => `${x.kind}|${x.node}|${x.result}|${x.decision}`),
   };
   await second.stop();
@@ -156,7 +156,7 @@ test("after a restart the orphan worker is killed and its ticket re-runs with no
   assert.match(err.why, /orphan/);
   assert.equal(records.filter((r) => r.kind === "node-outcome" && r.node === AGENT && r.result === "fail").length, 1);
   assert.ok(!records.some((r) => r.node === "implement/0" && r.result === "fail"));
-  assert.deepEqual(outcome.requests.at(-1), { skill: "tdd-afk", session: false });
+  assert.deepEqual(outcome.requests.at(-1), { procedure: "tdd", session: false });
 });
 
 test("deleting the dispatch store and restarting gives the same scheduling outcome", async () => {
@@ -167,7 +167,7 @@ test("deleting the dispatch store and restarting gives the same scheduling outco
 
 test("a stopped runner no longer reacts to worker exits", async () => {
   const m = machine();
-  m.harness.script("tdd-afk", { result: "running" }, { result: "ok" });
+  m.harness.script("tdd", { result: "running" }, { result: "ok" });
   const id = await m.ticket();
   const r = m.runner();
   await r.start();

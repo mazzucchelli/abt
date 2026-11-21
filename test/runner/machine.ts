@@ -22,8 +22,8 @@ export function machine(trees: Record<string, string> = {}, extra: Partial<Runne
   const tracker = new InMemoryTracker();
   const codeHost = new FakeCodeHost();
   const harness = new FakeHarness();
-  harness.script("tdd-afk", { result: "ok" });
-  harness.script("to-spec", specWriter(tracker));
+  harness.script("tdd", { result: "ok" });
+  harness.script("spec-writing", specWriter(tracker));
   const workspace = new FakeWorkspace();
   const workers = new FakeWorkers();
   let n = 0;

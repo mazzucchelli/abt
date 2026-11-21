@@ -4,7 +4,7 @@
 #
 # Planning matches risk: before any implementation a spec is on the tracker, or the skip is logged
 # (a low-risk, covered ticket that is not graded hard uses its own body as the spec). A spec whose
-# criteria are not all mapped to `proved by:` or `gap` is refused and /to-spec runs again. A high-risk
+# criteria are not all mapped to `proved by:` or `gap` is refused and spec-writing runs again. A high-risk
 # spec waits for the owner's approval; a medium one is approved at the PR.
 id: implement
 seq:
@@ -14,11 +14,11 @@ seq:
         cond:
           check: spec-ready
         else:
-          agent: to-spec
+          agent: spec-writing
   - action: await-spec-approval
   - retry: 5
     do:
-      agent: tdd-afk
+      agent: tdd
   - ensure:
       cond:
         check: pr-exists

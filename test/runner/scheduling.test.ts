@@ -9,7 +9,7 @@ const started = (m: M) => m.harness.requests.map((r) => r.ticket);
 
 test("with 5 eligible tickets and a cap of 3, exactly 3 run, and the next starts when one finishes", async () => {
   const m = machine();
-  m.harness.script("tdd-afk", { result: "running" });
+  m.harness.script("tdd", { result: "running" });
   const ids = [];
   for (let i = 0; i < 5; i++) ids.push(await m.ticket(`feat: ticket ${i}`));
   const r = m.runner();
@@ -40,7 +40,7 @@ test("a ticket waiting on a PR holds no slot", async () => {
 
 test("a per-project cap below the global cap is respected", async () => {
   const m = machine({}, { project: { maxWorkers: 1 } });
-  m.harness.script("tdd-afk", { result: "running" });
+  m.harness.script("tdd", { result: "running" });
   const ids = [await m.ticket("feat: a"), await m.ticket("feat: b"), await m.ticket("feat: c")];
   const r = m.runner();
   await r.start();
@@ -51,7 +51,7 @@ test("a per-project cap below the global cap is respected", async () => {
 
 test("a ticket with an unmerged blocker is not dispatched, and is once the blocker merges", async () => {
   const m = machine();
-  m.harness.script("tdd-afk", { result: "running" });
+  m.harness.script("tdd", { result: "running" });
   const blocker = await m.ticket("feat: blocker");
   const blocked = await m.ticket("feat: blocked", { blockedBy: [blocker] });
   const r = m.runner();
@@ -77,7 +77,7 @@ test("a ticket with an unmerged blocker is not dispatched, and is once the block
 
 test("a worker that marks its ticket blocked releases its slot and the ticket waits for the blocker", async () => {
   const m = machine({}, { scheduling: { globalCap: 1 } });
-  m.harness.script("tdd-afk", { result: "running" });
+  m.harness.script("tdd", { result: "running" });
   const a = await m.ticket("feat: a");
   const b = await m.ticket("feat: b");
   const dep = await m.ticket("feat: the dependency found mid-run");
@@ -107,7 +107,7 @@ test("a worker that marks its ticket blocked releases its slot and the ticket wa
 
 test("a usage-limit exit pauses new dispatch until the reset while running workers carry on", async () => {
   const m = machine();
-  m.harness.script("tdd-afk", { result: "running" });
+  m.harness.script("tdd", { result: "running" });
   const a = await m.ticket("feat: a");
   const b = await m.ticket("feat: b");
   const resetsAt = m.clock.now().getTime() / 1000 + 3600;
@@ -137,7 +137,7 @@ test("a usage-limit exit pauses new dispatch until the reset while running worke
 
 test("a usage limit with no reset pauses dispatch for 30 minutes", async () => {
   const m = machine();
-  m.harness.script("tdd-afk", { result: "error", why: "usage limit", usageLimit: {} }, { result: "running" });
+  m.harness.script("tdd", { result: "error", why: "usage limit", usageLimit: {} }, { result: "running" });
   const a = await m.ticket("feat: a");
   const r = m.runner();
   await r.start();
@@ -152,11 +152,11 @@ test("a usage limit with no reset pauses dispatch for 30 minutes", async () => {
   await r.stop();
 });
 
-const RETRY_TREE = "id: implement\nseq:\n  - retry: 2\n    do:\n      agent: tdd-afk\n  - action: open-pr\n";
+const RETRY_TREE = "id: implement\nseq:\n  - retry: 2\n    do:\n      agent: tdd\n  - action: open-pr\n";
 
 test("a worker past its wall-clock cap is killed and a fail is logged that counts toward the retry", async () => {
   const m = machine({ implement: RETRY_TREE });
-  m.harness.script("tdd-afk", { result: "running" });
+  m.harness.script("tdd", { result: "running" });
   const id = await m.ticket();
   const r = m.runner();
   await r.start();
@@ -184,7 +184,7 @@ test("a worker past its wall-clock cap is killed and a fail is logged that count
 
 test("the wall-clock cap is overridable per grade", async () => {
   const m = machine({}, { scheduling: { wallClockMinutes: { standard: 10 } } });
-  m.harness.script("tdd-afk", { result: "running" });
+  m.harness.script("tdd", { result: "running" });
   const id = await m.ticket();
   const r = m.runner();
   await r.start();
@@ -207,7 +207,7 @@ test("dispatch order mixes the three queues: usage-limit requeues, in-flight tre
   const limited = await m.ticket("feat: usage-limit requeue");
   await m.tracker.claim(limited);
   m.log.append(limited, {
-    run: "w", node: "implement/0", kind: "node-outcome", decision: "agent tdd-afk", why: "usage limit", evidence: null, result: "error",
+    run: "w", node: "implement/0", kind: "node-outcome", decision: "agent tdd", why: "usage limit", evidence: null, result: "error",
     payload: { nodeKind: "agent", usageLimit: { rateLimitType: "five_hour", resetsAt: m.clock.now().getTime() / 1000 } },
   });
   const r = m.runner();
@@ -221,7 +221,7 @@ test("dispatch order mixes the three queues: usage-limit requeues, in-flight tre
 
 test("a failed attempt goes back in line as an in-flight tree, ahead of new tickets, when its slot frees", async () => {
   const m = machine({ implement: RETRY_TREE }, { scheduling: { globalCap: 1 } });
-  m.harness.script("tdd-afk", { result: "running" });
+  m.harness.script("tdd", { result: "running" });
   const a = await m.ticket("feat: a");
   const b = await m.ticket("feat: b");
   m.harness.scriptTicket(a, { result: "fail", why: "red" }, { result: "running" });
@@ -235,7 +235,7 @@ test("a failed attempt goes back in line as an in-flight tree, ahead of new tick
 
 test("a usage-limit pause survives a runner restart", async () => {
   const m = machine();
-  m.harness.script("tdd-afk", { result: "error", why: "usage limit", usageLimit: {} }, { result: "running" });
+  m.harness.script("tdd", { result: "error", why: "usage limit", usageLimit: {} }, { result: "running" });
   const a = await m.ticket("feat: a");
   const first = m.runner();
   await first.start();

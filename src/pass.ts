@@ -426,7 +426,7 @@ class Pass {
       });
     }
     const out = await harness.run({
-      skill: node.name,
+      procedure: node.name,
       prompt: promptFor(t, this.#rejection(), this.#ownerAnswer(), openConflict(this.#d.log.read(ticket))?.why, node.name === SPEC_AGENT ? this.#specBrief() : undefined),
       worktree,
       model,
@@ -484,7 +484,7 @@ class Pass {
   /**
    * The spec gate. Holds when the skip applies (low risk, covered, not graded hard: logged once) or when a
    * spec is linked on the tracker and every criterion is mapped. A gap criterion files the bootstrap ticket
-   * and lifts the ticket to at least medium. Anything else fails, which sends /to-spec to write or fix it.
+   * and lifts the ticket to at least medium. Anything else fails, which sends spec-writing to write or fix it.
    */
   async #specReady(): Promise<Outcome> {
     const { tracker, ticket, log } = this.#d;
@@ -631,10 +631,10 @@ const RESEARCH_BRIEF = `Research only: write no code and commit nothing.
 Put the findings in the project's docs home, never in repo files or on a branch, and cite primary sources.
 When done, link the findings on the ticket with the title "${FINDINGS_LINK}" and post a short summary as a comment of kind "gist".`;
 
-/** The agent action that writes the spec. It is the /to-spec skill, unmodified; this brief only says where to put the result. */
-const SPEC_AGENT = "to-spec";
+/** The agent action that writes the spec. It is the spec-writing procedure; this brief only says where to put the result. */
+const SPEC_AGENT = "spec-writing";
 
-const SPEC_BRIEF = `Write the spec for this ticket with /to-spec, and write no code.
+const SPEC_BRIEF = `Write the spec for this ticket with the spec-writing procedure, and write no code.
 Publish it through the tracker: post it as a comment of kind "${SPEC_COMMENT}" and link it on the ticket with the title "${SPEC_LINK}".
 Every acceptance criterion is a checkbox item that ends with "proved by: <path of an existing committed check>" or with "gap" when no committed check could prove it.
 List the ticket's foreseeable ask-points, each with your recommendation, under a "## Ask-points" heading.`;

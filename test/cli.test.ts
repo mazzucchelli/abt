@@ -134,7 +134,7 @@ test("abt validate follows use into subtrees, and survives a loop", () => {
 });
 
 test("abt validate does not mind placeholders in a subtree, which are filled in at run time", () => {
-  const dir = treeDir({ "main.yaml": "use: step\nwith:\n  agent: tdd-afk\n", "step.yaml": "agent: ${agent}\n" });
+  const dir = treeDir({ "main.yaml": "use: step\nwith:\n  agent: tdd\n", "step.yaml": "agent: ${agent}\n" });
   assert.equal(abt("validate", join(dir, "main.yaml")).status, 0);
 });
 

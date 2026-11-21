@@ -9,25 +9,25 @@ export interface ScriptedOutcome {
   effect?: (req: WorkerRequest) => Promise<void>;
 }
 
-/** Returns scripted outcomes per skill, in order. The last one repeats. Keeps every request it saw. */
+/** Returns scripted outcomes per procedure, in order. The last one repeats. Keeps every request it saw. */
 export class FakeHarness implements HarnessAdapter {
   #scripts = new Map<string, ScriptedOutcome[]>();
   #next = 0;
   readonly requests: WorkerRequest[] = [];
 
-  script(skill: string, ...outcomes: ScriptedOutcome[]): void {
-    this.#scripts.set(skill, outcomes);
+  script(procedure: string, ...outcomes: ScriptedOutcome[]): void {
+    this.#scripts.set(procedure, outcomes);
   }
 
-  /** Outcomes for one ticket's worker; they win over the skill's script. */
+  /** Outcomes for one ticket's worker; they win over the procedure's script. */
   scriptTicket(ticket: string, ...outcomes: ScriptedOutcome[]): void {
     this.#scripts.set(`ticket:${ticket}`, outcomes);
   }
 
   async run(req: WorkerRequest): Promise<WorkerOutcome> {
     this.requests.push(req);
-    const script = this.#scripts.get(`ticket:${req.ticket}`) ?? this.#scripts.get(req.skill);
-    if (!script || script.length === 0) throw new Error(`no scripted outcome for skill ${req.skill}`);
+    const script = this.#scripts.get(`ticket:${req.ticket}`) ?? this.#scripts.get(req.procedure);
+    if (!script || script.length === 0) throw new Error(`no scripted outcome for procedure ${req.procedure}`);
     const outcome = script.length > 1 ? script.shift()! : script[0]!;
     await outcome.effect?.(req);
     const sessionId = req.session ?? `session-${++this.#next}`;
@@ -42,7 +42,7 @@ export class FakeHarness implements HarnessAdapter {
   }
 }
 
-/** A scripted spec worker: it publishes a spec whose every criterion is mapped, the way /to-spec does through the tracker. */
+/** A scripted spec worker: it publishes a spec whose every criterion is mapped, the way spec-writing does through the tracker. */
 export function specWriter(tracker: Tracker, body = "- [ ] It works: proved by: test/example.test.ts"): ScriptedOutcome {
   return {
     result: "ok",

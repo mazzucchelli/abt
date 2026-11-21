@@ -12,7 +12,9 @@ const base = {
   settingsPath: "/runs/t/settings.json",
   sessionId: "11111111-1111-4111-8111-111111111111",
 };
-const worker = { kind: "worker" as const, skill: "tdd-afk", prompt: "do it", cwd: "/wt", model: "claude-sonnet-5-5", effort: "medium", feedback: ["npm test"] };
+const worker = { kind: "worker" as const, procedure: "tdd", prompt: "do it", cwd: "/wt", model: "claude-sonnet-5-5", effort: "medium", feedback: ["npm test"] };
+
+const hooked = { ...worker, ticket: "ABT-9", node: "n1", run: "run-1", defaultBranch: "main", stateFile: "/runs/t/n1-s.stop-count", feedback: ["npm run lint"] };
 
 function flag(args: string[], name: string): string | undefined {
   const i = args.indexOf(name);
@@ -36,11 +38,38 @@ test("a worker launches headless with the pinned settings flags and the pinned p
   assert.ok(!s.args.includes("--bare"));
 });
 
-test("the prompt invokes the abt skill and carries the feedback commands", () => {
+test("the prompt names the hidden procedure for the Skill tool instead of a slash command", () => {
   const prompt = flag(buildLaunch({ ...base, ...worker }).args, "-p")!;
-  assert.match(prompt, /^\/abt:tdd-afk/);
+  assert.doesNotMatch(prompt, /\/abt:/);
+  assert.match(prompt, /Skill tool/);
+  assert.match(prompt, /"abt:tdd"/);
   assert.match(prompt, /do it/);
   assert.match(prompt, /npm test/);
+});
+
+test("the prompt tells a worker to raise an ask-point where the procedure would ask the human", () => {
+  const prompt = flag(buildLaunch({ ...base, ...hooked }).args, "-p")!;
+  assert.match(prompt, /no human is present/i);
+  assert.match(prompt, /raise an ask-point/i);
+  assert.match(prompt, /abt log append ABT-9/);
+  assert.match(prompt, /recommended/);
+});
+
+test("a worker's system prompt is appended from the principle index, with the principles directory named", () => {
+  const s = buildLaunch({ ...base, ...worker });
+  assert.equal(flag(s.args, "--append-system-prompt-file"), "/opt/abt/principles/index.md");
+  assert.match(flag(s.args, "-p")!, /\/opt\/abt\/principles\//);
+});
+
+test("a judge gets no principle index", () => {
+  const s = buildLaunch({ ...base, kind: "judge", prompt: "j", cwd: "/tmp/j", schema: {} });
+  assert.equal(flag(s.args, "--append-system-prompt-file"), undefined);
+});
+
+test("a worker may invoke abt procedures through the Skill tool and nothing else of that tool", () => {
+  const s = JSON.parse(injectedSettings({}));
+  assert.ok(s.permissions.allow.includes("Skill(abt:*)"));
+  assert.ok(!s.permissions.allow.includes("Skill"));
 });
 
 test("a session to poll is resumed instead of started", () => {
@@ -79,7 +108,6 @@ test("a judge runs on the pinned Haiku with a JSON schema, no tools and no plugi
   assert.equal(flag(s.args, "--setting-sources"), "project,local");
 });
 
-const hooked = { ...worker, ticket: "ABT-9", node: "n1", run: "run-1", defaultBranch: "main", stateFile: "/runs/t/n1-s.stop-count", feedback: ["npm run lint"] };
 
 test("the per-run settings carry a Stop hook and a PreToolUse guard that call the pinned abt", () => {
   const s = JSON.parse(injectedSettings({ hooks: workerHooks(profile) }));

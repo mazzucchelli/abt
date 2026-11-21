@@ -8,7 +8,7 @@ seq:
       else:
         retry: 3
         do:
-          agent: tdd-afk
+          agent: tdd
   - ensure:
       cond:
         check: required-checks-green

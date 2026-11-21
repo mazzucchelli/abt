@@ -155,10 +155,10 @@ test("a subtree gets its parameters through with:, and its node IDs stay stable"
   await w.pass(use("fixer"), { trees });
   const ids = Object.keys(w.outcomes());
   assert.deepEqual(ids.sort(), ["root", "root/0", "root/1", "root/1/0", "root/1/done"].sort());
-  assert.equal(w.harness.requests[0]!.skill, "fixer");
+  assert.equal(w.harness.requests[0]!.procedure, "fixer");
   await w.pass(use("other"), { trees });
   assert.deepEqual(Object.keys(w.outcomes()).sort(), ids);
-  assert.equal(w.harness.requests[1]!.skill, "other");
+  assert.equal(w.harness.requests[1]!.procedure, "other");
 });
 
 test("an explicit id on the use node names the subtree root; the subtree's own ids are scoped under it", async () => {

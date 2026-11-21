@@ -6,7 +6,7 @@ export interface FeedbackConfig {
 }
 
 export interface WorkerRequest {
-  skill: string;
+  procedure: string;
   prompt: string;
   /** The ticket's linked worktree, where the worker runs. */
   worktree: string;

@@ -108,7 +108,7 @@
       "then": {
         "properties": {
           "payload": {
-            "required": ["question", "recommended", "reversible", "handling"],
+            "required": ["question", "recommended", "reversible"],
             "properties": {
               "question": { "type": "string", "minLength": 1 },
               "recommended": { "type": "string", "minLength": 1 },
@@ -118,7 +118,9 @@
             },
             "additionalProperties": false
           }
-        }
+        },
+        "if": { "not": { "properties": { "result": { "const": "open" } } } },
+        "then": { "properties": { "payload": { "required": ["handling"] } } }
       }
     },
     {

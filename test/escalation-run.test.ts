@@ -21,8 +21,8 @@ async function world(risk: "low" | "medium" = "low") {
   const { id } = await tracker.createTicket({ title: "feat: add the thing", body: "details", risk });
   const codeHost = new FakeCodeHost();
   const harness = new FakeHarness();
-  harness.script("tdd-afk", { result: "ok" });
-  harness.script("to-spec", specWriter(tracker));
+  harness.script("tdd", { result: "ok" });
+  harness.script("spec-writing", specWriter(tracker));
   const workspace = new FakeWorkspace();
   const notifier = new FakeNotifier();
   const clock = new FakeClock();
@@ -59,13 +59,13 @@ test("abandon from the owner ends the run Abandoned with the worktree cleaned up
 
 test("re-run from the owner runs the tree again, with the retry counts reset", async () => {
   const w = await world();
-  w.harness.script("tdd-afk", { result: "fail" });
+  w.harness.script("tdd", { result: "fail" });
   let r = await w.run();
   for (let i = 0; i < 9 && !r.terminal; i++) r = await w.run();
   assert.equal(await w.state(), "Needs you");
   const before = w.harness.requests.length;
 
-  w.harness.script("tdd-afk", { result: "ok" });
+  w.harness.script("tdd", { result: "ok" });
   await w.tracker.reply(w.id, FAKE_OWNER, "re-run");
   r = await w.run();
   assert.equal(w.harness.requests.length, before + 1, "the worker ran again");
@@ -84,7 +84,7 @@ test("the owner's answer reaches the next worker", async () => {
 
 test("a failed run that sends the ticket to Needs you pushes the owner, with no ticket content", async () => {
   const w = await world();
-  w.harness.script("tdd-afk", { result: "fail", why: "secret failure detail" });
+  w.harness.script("tdd", { result: "fail", why: "secret failure detail" });
   let r = await w.run();
   for (let i = 0; i < 9 && !r.terminal; i++) r = await w.run();
   assert.deepEqual(w.notifier.pushes, [{ ticket: w.id, url: `https://fake.tracker/${w.id}` }]);
@@ -99,7 +99,7 @@ test("decided ask-points on a medium ticket are listed in the PR description", a
 
 test("a run that failed and exhausted its retries posts one ask-point, and the owner's bare yes runs the worker again", async () => {
   const w = await world();
-  w.harness.script("tdd-afk", { result: "fail" });
+  w.harness.script("tdd", { result: "fail" });
   let r = await w.run();
   for (let i = 0; i < 9 && !r.terminal; i++) r = await w.run();
   const asks = (await w.tracker.readCommentsSince(w.id)).comments.filter((c) => c.kind === "ask-point");
@@ -107,7 +107,7 @@ test("a run that failed and exhausted its retries posts one ask-point, and the o
   assert.equal(asks[0]!.data?.recommended, "re-run the tree");
 
   const before = w.harness.requests.length;
-  w.harness.script("tdd-afk", { result: "ok" });
+  w.harness.script("tdd", { result: "ok" });
   await w.tracker.reply(w.id, FAKE_OWNER, "yes");
   r = await w.run();
   assert.equal(w.harness.requests.length, before + 1, "the answer reset the retries, so a worker ran");
@@ -120,7 +120,7 @@ test("an owner's answer goes stale: a later escalation does not carry it into th
   const q = { question: "Which column?", recommended: "keep old name", evidence: "src/db.ts", reversible: false };
   await handleAskPoint(w, { ticket: w.id, run: "r0", node: null, askPoint: q });
   await w.tracker.reply(w.id, FAKE_OWNER, "yes");
-  w.harness.script("tdd-afk", { result: "running" });
+  w.harness.script("tdd", { result: "running" });
   await w.run();
   assert.match(w.harness.requests.at(-1)!.prompt, /keep old name/);
   await handleAskPoint(w, { ticket: w.id, run: "r3", node: null, askPoint: { ...q, question: "Another?", recommended: "no" } });

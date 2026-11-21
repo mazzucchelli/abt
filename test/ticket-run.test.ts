@@ -19,8 +19,8 @@ async function world(project: Record<string, string> = {}) {
   const { id } = await tracker.createTicket({ title: "feat: add the thing", body: "details" });
   const codeHost = new FakeCodeHost();
   const harness = new FakeHarness();
-  harness.script("tdd-afk", { result: "ok" });
-  harness.script("to-spec", specWriter(tracker));
+  harness.script("tdd", { result: "ok" });
+  harness.script("spec-writing", specWriter(tracker));
   const workspace = new FakeWorkspace();
   let n = 0;
   const newId = () => `id-${++n}`;
@@ -87,7 +87,7 @@ test("at the terminal state one structured summary comment is posted", async () 
 });
 
 test("a tree whose action pushes to the default branch is refused by the invariant, before anything runs", async () => {
-  const w = await world({ implement: "id: implement\nseq:\n  - agent: tdd-afk\n  - action: push-default-branch\n" });
+  const w = await world({ implement: "id: implement\nseq:\n  - agent: tdd\n  - action: push-default-branch\n" });
   const r = await w.run();
   assert.equal(r.terminal, true);
   assert.equal(await w.state(), "Needs you");
@@ -101,7 +101,7 @@ test("a tree whose action pushes to the default branch is refused by the invaria
 
 test("a worker that keeps failing steps up, then ends in cleanup: worktree removed, failure logged, ticket to Needs you", async () => {
   const w = await world();
-  w.harness.script("tdd-afk", { result: "fail", why: "tests never went green" });
+  w.harness.script("tdd", { result: "fail", why: "tests never went green" });
   let r = await w.run();
   assert.equal(r.terminal, false);
   for (let i = 0; i < 9 && !r.terminal; i++) r = await w.run();
@@ -109,7 +109,7 @@ test("a worker that keeps failing steps up, then ends in cleanup: worktree remov
   assert.equal(await w.state(), "Needs you");
   assert.equal(await w.workspace.find(w.id), undefined);
   // Two failures at standard, one at hard, then nothing left to step up to.
-  assert.deepEqual(w.harness.requests.filter((q) => q.skill === "tdd-afk").map((q) => q.model), ["claude-sonnet-5-5", "claude-sonnet-5-5", "claude-opus-5-5"]);
+  assert.deepEqual(w.harness.requests.filter((q) => q.procedure === "tdd").map((q) => q.model), ["claude-sonnet-5-5", "claude-sonnet-5-5", "claude-opus-5-5"]);
   const recs = w.log.read(w.id);
   assert.equal(recs.find((x) => x.kind === "node-outcome" && x.node === "implement/2/0")!.why, "tests never went green (exit 1)");
   assert.equal(recs.findLast((x) => x.node === "cleanup")!.result, "ok");
@@ -133,12 +133,12 @@ test("a project tree replaces the plugin default of the same name", async () => 
   const w = await world({ implement: "id: implement\nagent: custom-skill\n" });
   w.harness.script("custom-skill", { result: "ok" });
   await w.run();
-  assert.deepEqual(w.harness.requests.map((q) => q.skill), ["custom-skill"]);
+  assert.deepEqual(w.harness.requests.map((q) => q.procedure), ["custom-skill"]);
 });
 
 test("a project tree that breaks after the ticket started sends it to Needs you and removes the worktree", async () => {
   const w = await world();
-  w.harness.script("tdd-afk", { result: "running" });
+  w.harness.script("tdd", { result: "running" });
   assert.equal((await w.run()).terminal, false);
   assert.ok(await w.workspace.find(w.id));
   const broken = new MemoryTrees(".agents/abt/trees", { implement: "check: nope\n" });
@@ -164,7 +164,7 @@ test("cleanup on every terminal state: a cleanup tree that does not clean up is 
 
 test("a running worker leaves the worktree, posts nothing and is polled on the next run", async () => {
   const w = await world();
-  w.harness.script("tdd-afk", { result: "running" }, { result: "ok" });
+  w.harness.script("tdd", { result: "running" }, { result: "ok" });
   const first = await w.run();
   assert.equal(first.result, "running");
   assert.equal(first.terminal, false);
@@ -172,7 +172,7 @@ test("a running worker leaves the worktree, posts nothing and is polled on the n
   assert.deepEqual((await w.comments()).filter((c) => c.kind !== "spec"), []);
   assert.equal((await w.run()).terminal, true);
   assert.equal(await w.state(), "In review");
-  assert.equal(new Set(w.harness.requests.filter((q) => q.skill === "tdd-afk").map((q) => q.session ?? "")).size, 2);
+  assert.equal(new Set(w.harness.requests.filter((q) => q.procedure === "tdd").map((q) => q.session ?? "")).size, 2);
 });
 
 test("re-running after a crash in the middle of the worker step resumes from the facts", async () => {
@@ -180,7 +180,7 @@ test("re-running after a crash in the middle of the worker step resumes from the
   const real = w.harness.run.bind(w.harness);
   let crashed = false;
   w.harness.run = async (req) => {
-    if (!crashed && req.skill === "tdd-afk") {
+    if (!crashed && req.procedure === "tdd") {
       crashed = true;
       throw new Error("process died");
     }
@@ -208,7 +208,7 @@ test("a ticket that is not Todo, In progress or In review is left alone", async 
 
 test("a crash after the PR was opened but before cleanup still cleans up and summarises on the next run", async () => {
   const w = await world();
-  w.harness.script("tdd-afk", { result: "ok" });
+  w.harness.script("tdd", { result: "ok" });
   const realRemove = w.workspace.remove.bind(w.workspace);
   let crashed = false;
   w.workspace.remove = async (t) => {
@@ -226,7 +226,7 @@ test("a crash after the PR was opened but before cleanup still cleans up and sum
   assert.equal(r.terminal, true);
   assert.equal(await w.workspace.find(w.id), undefined);
   assert.equal((await w.comments()).filter((c) => c.kind === "summary").length, 1);
-  assert.equal(w.harness.requests.filter((q) => q.skill === "tdd-afk").length, 1, "the worker is not dispatched again");
+  assert.equal(w.harness.requests.filter((q) => q.procedure === "tdd").length, 1, "the worker is not dispatched again");
 });
 
 test("with risk assessment wired in, intake assesses the ticket, labels it and logs the record", async () => {
@@ -246,7 +246,7 @@ test("with risk assessment wired in, intake assesses the ticket, labels it and l
 test("with keepFailed, a failed run's worktree is kept and stamped instead of removed", async () => {
   const w = await world();
   const clock = new FakeClock();
-  w.harness.script("tdd-afk", { result: "fail", why: "tests never went green" });
+  w.harness.script("tdd", { result: "fail", why: "tests never went green" });
   let r = await runTicket({ ...w.deps(), keepFailed: clock });
   for (let i = 0; i < 9 && !r.terminal; i++) r = await runTicket({ ...w.deps(), keepFailed: clock });
   assert.equal(await w.state(), "Needs you");

@@ -239,8 +239,8 @@ seq:
 test("a running worker is polled on the next pass, not dispatched again", async () => {
   const w = await world();
   await w.claim();
-  w.harness.script("tdd-afk", { result: "running" }, { result: "ok" });
-  const tree = "agent: tdd-afk";
+  w.harness.script("tdd", { result: "running" }, { result: "ok" });
+  const tree = "agent: tdd";
   assert.equal((await w.pass(tree)).result, "running");
   const dispatched = w.records().root!.evidence;
   assert.equal((await w.pass(tree)).result, "ok");
@@ -265,8 +265,8 @@ test("a judge node without a configured judge is an error, never a guessed verdi
 
 test("a worker is refused before the ticket is claimed", async () => {
   const w = await world();
-  w.harness.script("tdd-afk", { result: "ok" });
-  const r = await w.pass("agent: tdd-afk");
+  w.harness.script("tdd", { result: "ok" });
+  const r = await w.pass("agent: tdd");
   assert.equal(r.result, "fail");
   assert.match(w.records().root!.why, /claim before work/);
   assert.deepEqual(w.harness.requests, []);
@@ -275,10 +275,10 @@ test("a worker is refused before the ticket is claimed", async () => {
 test("a worker gets the skill, prompt, worktree, routed model and effort, and feedback config", async () => {
   const w = await world();
   await w.claim();
-  w.harness.script("tdd-afk", { result: "ok" });
-  await w.pass("agent: tdd-afk");
+  w.harness.script("tdd", { result: "ok" });
+  await w.pass("agent: tdd");
   const req = w.harness.requests[0]!;
-  assert.equal(req.skill, "tdd-afk");
+  assert.equal(req.procedure, "tdd");
   assert.equal(req.prompt, "t\n\nb");
   assert.equal(req.worktree, await w.workspace.find(w.ticket));
   assert.deepEqual([req.model, req.effort], ["claude-sonnet-5-5", "high"]);
@@ -291,17 +291,17 @@ test("a worker gets the skill, prompt, worktree, routed model and effort, and fe
   assert.match(w.records().root!.evidence!, /transcripts/);
 });
 
-const RETRY = "retry: 5\ndo:\n  agent: tdd-afk\n";
+const RETRY = "retry: 5\ndo:\n  agent: tdd\n";
 
 test("a worker is launched at the grade the ticket's risk needs, and the pinned model ID is logged", async () => {
   const w = await world();
   await w.claim();
-  w.harness.script("tdd-afk", { result: "ok" });
+  w.harness.script("tdd", { result: "ok" });
   w.log.append(w.ticket, { run: "r0", node: null, kind: "risk-assessment", decision: "risk tier high", why: "w", evidence: null, result: "ok", payload: { tier: "high", reasons: [] } });
   // The owner approved the spec: a high-risk ticket's implementation worker never starts before that.
   w.log.append(w.ticket, { run: "r0", node: null, kind: "escalation", decision: "ticket sent to Needs you", why: "w", evidence: null, result: "fail", payload: { question: "Approve the spec? yes", reason: "w", needs: "an answer" } });
   w.log.append(w.ticket, { run: "r0", node: null, kind: "override", decision: "owner answered", why: "w", evidence: null, result: "ok", payload: { target: "escalation", by: "owner", value: { command: "answer" } } });
-  await w.pass("agent: tdd-afk");
+  await w.pass("agent: tdd");
   assert.deepEqual([w.harness.requests[0]!.model, w.harness.requests[0]!.effort], ["claude-opus-5-5", "high"]);
   const routing = w.log.read(w.ticket).find((r) => r.kind === "routing")!;
   assert.equal(routing.payload.grade, "hard");
@@ -312,7 +312,7 @@ test("a worker is launched at the grade the ticket's risk needs, and the pinned 
 test("two failures at standard step up to hard on the next launch; one at hard stops the retry and fails", async () => {
   const w = await world();
   await w.claim();
-  w.harness.script("tdd-afk", { result: "fail" });
+  w.harness.script("tdd", { result: "fail" });
   let r = await w.pass(RETRY);
   for (let i = 0; i < 9 && r.result === "running"; i++) r = await w.pass(RETRY);
   assert.equal(r.result, "fail");
@@ -327,7 +327,7 @@ test("two failures at standard step up to hard on the next launch; one at hard s
 test("a human grade override wins, and the grade is not stepped up", async () => {
   const w = await world();
   await w.claim();
-  w.harness.script("tdd-afk", { result: "fail" });
+  w.harness.script("tdd", { result: "fail" });
   await overrideGrade({ log: w.log }, { ticket: w.ticket, run: "r0", to: "simple", by: "matteo" });
   for (let i = 0; i < 6; i++) await w.pass(RETRY);
   assert.ok(w.harness.requests.length > 0);
@@ -337,9 +337,9 @@ test("a human grade override wins, and the grade is not stepped up", async () =>
 test("a poll of a running worker does not route again", async () => {
   const w = await world();
   await w.claim();
-  w.harness.script("tdd-afk", { result: "running" });
-  await w.pass("agent: tdd-afk");
-  await w.pass("agent: tdd-afk");
+  w.harness.script("tdd", { result: "running" });
+  await w.pass("agent: tdd");
+  await w.pass("agent: tdd");
   assert.equal(w.log.read(w.ticket).filter((x) => x.kind === "routing").length, 1);
   assert.equal(w.harness.requests[1]!.model, "claude-sonnet-5-5");
 });
@@ -371,8 +371,8 @@ test("a worker gets its own isolated environment, different from another ticket'
   envs.allocate("OTHER-1", "/w/other");
   const w = await world();
   await w.claim();
-  w.harness.script("tdd-afk", { result: "ok" });
-  await runPass({ tree: "agent: tdd-afk", ticket: w.ticket, tracker: w.tracker, codeHost: w.codeHost, harness: w.harness, workspace: w.workspace, log: w.log, newId: () => "x", envs });
+  w.harness.script("tdd", { result: "ok" });
+  await runPass({ tree: "agent: tdd", ticket: w.ticket, tracker: w.tracker, codeHost: w.codeHost, harness: w.harness, workspace: w.workspace, log: w.log, newId: () => "x", envs });
   assert.deepEqual(w.harness.requests[0]!.env, { ABT_LANE: "1", ABT_PORT_WEB: "3001", ABT_DATABASE: "db_1" });
 });
 
@@ -380,7 +380,7 @@ test("a worker sent back after a rebase conflict is told about the conflict", as
   const w = await world();
   await w.claim();
   w.log.append(w.ticket, { run: "r0", node: null, kind: "note", decision: "rebase conflict: sent back to the worker", why: "conflicts in a.txt", evidence: null, result: "fail", payload: { by: "runner", text: "conflicts in a.txt" } });
-  w.harness.script("tdd-afk", { result: "ok" });
-  await w.pass("agent: tdd-afk");
+  w.harness.script("tdd", { result: "ok" });
+  await w.pass("agent: tdd");
   assert.match(w.harness.requests[0]!.prompt, /no longer rebases cleanly[\s\S]*conflicts in a\.txt/);
 });
