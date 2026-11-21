@@ -1,0 +1,37 @@
+import { missingFacts, type FactsProbe, type ProjectFacts } from "./facts.ts";
+
+/** A probe that answers with the facts and files it was given. */
+export class FakeProbe implements FactsProbe {
+  readonly #facts: ProjectFacts;
+  readonly #files: string[];
+  constructor(facts: ProjectFacts, files: string[]) {
+    this.#facts = facts;
+    this.#files = files;
+  }
+  async facts() {
+    return structuredClone(this.#facts);
+  }
+  async files() {
+    return [...this.#files];
+  }
+}
+
+/** A solo, private repo with no server-side protection and a `can-merge` aggregator job: everything known. */
+export function soloPrivateFacts(): ProjectFacts {
+  const f: ProjectFacts = {
+    id: "me__solo",
+    default_branch: "main",
+    visibility: "private",
+    plan: "free",
+    protection: { enforced: false, required_checks: [], approvals: 0 },
+    allow_auto_merge: false,
+    merge_queue_available: false,
+    write_collaborators: ["me"],
+    write_apps: [],
+    ci: { jobs: ["test", "build", "typecheck", "can-merge"], aggregator: "can-merge" },
+    test_tooling: ["node --test"],
+    preview_deployments: false,
+  };
+  if (missingFacts(f).length > 0) throw new Error("soloPrivateFacts must be complete");
+  return f;
+}

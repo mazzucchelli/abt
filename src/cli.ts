@@ -15,12 +15,13 @@ import { runnerCommand } from "./runner/cli.ts";
 import { validateWithUses } from "./validate.ts";
 import { policyProblems } from "./landing/policy.ts";
 import { primaryCommand } from "./primary/cli.ts";
+import { onboardCommand } from "./onboard/cli.ts";
 import { upgradeCommand } from "./install/cli.ts";
 import { selfTestCommand } from "./install/selftest.ts";
 import { retypeAskPoint } from "./retype.ts";
 import { WORK_TYPES, type WorkType } from "./tracker/contract.ts";
 
-const STUBS = ["onboard"];
+const STUBS: string[] = [];
 const USAGE = `usage: abt <command>
 
 commands:
@@ -31,7 +32,7 @@ commands:
   create     make a ticket from free text and enqueue it
   block      make one ticket block another
   reply      write a chat reply to an escalation on the ticket
-  onboard    onboard a repo (not implemented)
+  onboard    agree a merge policy for a repo: probe, open the PR, settle, pin
   validate   validate a behavior-tree or merge-policy YAML file
   upgrade    install a tag under the abt folder and switch to it, or roll back
   selftest   run the startup self-test of this install against Claude Code
@@ -75,6 +76,8 @@ async function main(argv: string[]): Promise<number> {
   if (command === "runner") return runnerCommand(rest);
 
   if (command === "enqueue" || command === "reply" || command === "create" || command === "block") return primaryCommand(command, rest);
+
+  if (command === "onboard") return onboardCommand(rest);
 
   if (command === "upgrade") return upgradeCommand(rest);
 

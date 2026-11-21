@@ -44,13 +44,13 @@ test("abt validate exits non-zero when the file is missing", () => {
   assert.notEqual(r.status, 0);
 });
 
-for (const sub of ["onboard"]) {
-  test(`abt ${sub} is a stub that exits non-zero`, () => {
-    const r = abt(sub);
-    assert.notEqual(r.status, 0);
-    assert.match(r.stderr, /not implemented/);
-  });
-}
+test("abt onboard with no or an unknown step prints its usage and exits 2", () => {
+  for (const args of [[], ["bogus"]]) {
+    const r = abt("onboard", ...args);
+    assert.equal(r.status, 2);
+    assert.match(r.stderr, /usage: abt onboard probe/);
+  }
+});
 
 test("abt with an unknown subcommand prints usage and fails", () => {
   const r = abt("bogus");

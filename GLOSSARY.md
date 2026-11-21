@@ -44,6 +44,8 @@ Domain terms for the AI workflow. Definitions only, no implementation detail.
 
 **Facts snapshot**: The probed project facts (enforcement, required checks, writers, CI jobs, test tooling) that a merge policy was agreed against.
 
+**Hand merge**: The owner merging the onboarding PR, or a later change to a protected file, themselves. The runner never merges these. A hand merge of the onboarding PR is what moves the project off pr-only: the runner then records the pins.
+
 **Policy drift**: A re-probe that no longer matches the facts snapshot. It pauses autonomous merge in that project until the human re-agrees; the workflow never adapts silently.
 
 **Self-run enforcement**: The runner, not the code host, enforcing a merge policy's gates, backed by compensating controls (sole merger, head-SHA re-check, post-merge watch of the default branch).
@@ -114,7 +116,7 @@ Domain terms for the AI workflow. Definitions only, no implementation detail.
 
 **abt**: Short for agentic behavior tree, the name of this workflow and its repo. Everything it owns, in a project or globally, sits under an `abt/` folder so it is recognisable.
 
-**Pin**: A recorded fingerprint of one of a project's protected abt files (merge policy, adapter doc, trees, check scripts), kept outside the project so it can't be changed together with the file it guards. A file that no longer matches its pin stops the runner for that project until the human looks. Pins move only when the human merges a change to the file.
+**Pin**: A recorded fingerprint of one of a project's protected abt files (merge policy, facts snapshot, adapter doc, trees, check scripts), kept outside the project so it can't be changed together with the file it guards. A file that no longer matches its pin stops the runner for that project until the human looks. Pins move only when the human merges a change to the file, or re-pins after reading it.
 
 **Pinned install**: The fixed release of abt that the runner and its workers run, separate from any copy being edited. It changes only on an explicit upgrade, and the human's own sessions use the same release.
 

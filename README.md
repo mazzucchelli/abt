@@ -90,3 +90,16 @@ bin/abt create --inferred implement -- "Add a --json flag to abt status"
 bin/abt block ABT-64 ABT-62
 bin/abt reply ABT-62 "answer: use postgres"
 ```
+
+## Onboarding: agree a merge policy
+
+`/abt:onboard` runs `abt onboard` as a conversation. The primary agent probes the project (visibility, protection and rulesets, write collaborators, deploy keys, CI jobs and their aggregator, test tooling), proposes a preset, matches the global risk catalogue to the repo, lists unpaired modules as gaps and walks the owner through each policy field. pr-only is the fallback whenever a fact is missing or ambiguous; solo-self is the one preset that merges (`runner-merge`), and solo-server and team-reviewed are named only and resolve to pr-only in v1.
+
+```bash
+bin/abt onboard probe [--no-write-apps]               # facts, proposal, catalogue matches, gaps
+bin/abt onboard open --team ABT [--draft policy.yaml] # PR: merge policy, facts snapshot, land tree, adapter doc, CLAUDE.md pointer
+bin/abt onboard settle                                # after you merged it by hand: record the pins
+bin/abt onboard pin                                   # after you read a change to a protected file: re-pin
+```
+
+The owner merges the PR by hand; until then the project is pr-only. The project id is `<owner>__<repo>` from the GitHub remote. On the hand merge the runner records pins (sha256) of the protected files (`.agents/abt/merge-policy.yaml`, `workflow.md`, `facts.yaml`, `trees/*.yaml`, `checks/`) in `$ABT_HOME/pins/<project id>.json`, outside the repo. A protected file that changed, appeared or vanished without its pin holds every ticket of the project in Needs you, and nothing merges until the owner re-pins.
