@@ -66,9 +66,17 @@ Domain terms for the AI workflow. Definitions only, no implementation detail.
 
 **Landing strategy**: How a project lines up verified PRs to merge into the default branch, one after another. Chosen per project; the rest of the workflow does not change with it.
 
-**Principle**: A single-rule coding or verification constraint the agent follows, stored as a small standalone skill file with a "when to apply" trigger. It constrains how code is written and checked, never a process.
+**Skill**: A storage format only: a folder with a `SKILL.md` (name, description, body) that a harness can load. Principles, procedures and commands are all stored as skills; the word says how something is kept, never what it is.
 
-**Principle index**: The short always-loaded list of every principle's name and trigger. An agent reads a principle's file only when its trigger fires.
+**Rule**: An always-loaded instruction in a plain markdown file, such as a project's `CLAUDE.md` or the human's user rules. It has no trigger and nothing enforces it; it is advice the agent reads. What must hold is a check, a gate or a pin, not a rule.
+
+**Principle**: A single-rule coding or verification constraint the agent follows, stored as a small standalone skill file with a "when to apply" trigger. It constrains how code is written and checked, never a process. Advisory like a rule, but read only when its trigger fires.
+
+**Principle index**: The short always-loaded list of every principle's name and trigger, delivered to workers through an appended system-prompt file, never through a project's `CLAUDE.md`. An agent reads a principle's file only when its trigger fires.
+
+**Procedure**: A multi-step process for one kind of task, with a goal, ordered steps and an exit, stored as a skill file. A behavior tree's agent action hands one to a worker as its task input. It is how, step by step; a principle is only a constraint on how the steps are done.
+
+**Command**: A skill the human invokes by name in an interactive session to start something, such as enqueueing a ticket. The runner starting a worker on a procedure is not a command.
 
 **Provenance map**: The record, per forked skill, of where it came from (upstream repo and path, pinned commit, license), whether it is verbatim, modified or original, and how it diverges. It lets an agent diff against upstream later.
 
