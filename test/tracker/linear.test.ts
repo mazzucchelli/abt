@@ -173,6 +173,52 @@ test("linear: enqueue is one issue update that adds the abt marker and the work 
   ]);
 });
 
+test("linear: addBlocker creates a blocks relation from the blocker to the ticket", async () => {
+  let input: Record<string, unknown> | undefined;
+  const tracker = await createLinearTracker(config, {
+    apiKey: "k",
+    fetch: (async (_u: unknown, init: RequestInit) => {
+      const { query, variables } = JSON.parse(String(init.body));
+      if (/issueRelationCreate/.test(query)) {
+        input = variables.input;
+        return new Response(JSON.stringify({ data: { issueRelationCreate: { success: true } } }));
+      }
+      if (/issue\(id/.test(query)) {
+        const issue = { identifier: "ABT-2", title: "t", description: null, state: { name: "Todo" }, assignee: null, labels: { nodes: [] }, attachments: { nodes: [] } };
+        return new Response(JSON.stringify({ data: { issue } }));
+      }
+      return setupResponse(allStates, allLabels)();
+    }) as typeof fetch,
+  });
+  await tracker.addBlocker("ABT-2", "ABT-1");
+  assert.deepEqual(input, { issueId: "ABT-1", relatedIssueId: "ABT-2", type: "blocks" });
+});
+
+test("linear: addBlocker does nothing when the blocker already blocks the ticket", async () => {
+  let created = 0;
+  const tracker = await createLinearTracker(config, {
+    apiKey: "k",
+    fetch: (async (_u: unknown, init: RequestInit) => {
+      const { query } = JSON.parse(String(init.body));
+      if (/issueRelationCreate/.test(query)) {
+        created++;
+        return new Response(JSON.stringify({ data: { issueRelationCreate: { success: true } } }));
+      }
+      if (/issue\(id/.test(query)) {
+        const issue = {
+          identifier: "ABT-2", title: "t", description: null, state: { name: "Todo" }, assignee: null,
+          labels: { nodes: [] }, attachments: { nodes: [] },
+          inverseRelations: { nodes: [{ type: "blocks", issue: { identifier: "ABT-1" } }] },
+        };
+        return new Response(JSON.stringify({ data: { issue } }));
+      }
+      return setupResponse(allStates, allLabels)();
+    }) as typeof fetch,
+  });
+  await tracker.addBlocker("ABT-2", "ABT-1");
+  assert.equal(created, 0);
+});
+
 test("linear: postReply is a plain comment with no abt marker", async () => {
   let input: { issueId: string; body: string } | undefined;
   const tracker = await createLinearTracker(config, {

@@ -111,6 +111,18 @@ export function contractSuite(name: string, make: () => Promise<Tracker> | Track
     assert.ok((await tracker.listByState("Todo")).some((x) => x.id === id));
   });
 
+  t("addBlocker makes the blocker block the ticket and keeps any blocker it already had", async (tracker) => {
+    const a = await tracker.createTicket({ title: uniq(), body: "" });
+    const b = await tracker.createTicket({ title: uniq(), body: "" });
+    const c = await tracker.createTicket({ title: uniq(), body: "" });
+    await tracker.addBlocker(c.id, a.id);
+    await tracker.addBlocker(c.id, b.id);
+    assert.deepEqual((await tracker.readTicket(c.id)).blockedBy.sort(), [a.id, b.id].sort());
+    assert.deepEqual((await tracker.readTicket(a.id)).blockedBy, []);
+    await tracker.addBlocker(c.id, a.id);
+    assert.deepEqual((await tracker.readTicket(c.id)).blockedBy.sort(), [a.id, b.id].sort(), "asking again is not an error and adds nothing");
+  });
+
   t("postReply writes a plain comment that reads back as the writer's reply", async (tracker) => {
     const { id, owner } = await tracker.createTicket({ title: uniq(), body: "" });
     await tracker.postReply(id, "yes");

@@ -1,4 +1,4 @@
-/** The closed tracker contract: eleven operations, tracker-neutral. */
+/** The closed tracker contract: twelve operations, tracker-neutral. */
 
 export const LIFECYCLE_STATES = [
   "Todo",
@@ -99,6 +99,8 @@ export interface Tracker {
   postReply(id: string, body: string): Promise<void>;
   /** Sets the ticket's risk tier label, replacing any other tier label and leaving every other label alone. */
   setRisk(id: string, tier: RiskTier): Promise<void>;
+  /** Makes `blocker` block `id`, keeping every blocker the ticket already has. */
+  addBlocker(id: string, blocker: string): Promise<void>;
 }
 
 const MARKER = /\n\n<!-- abt:(\S+) ([A-Za-z0-9+/=]*) -->\s*$/;

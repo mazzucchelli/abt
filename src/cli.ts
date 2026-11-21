@@ -25,7 +25,9 @@ commands:
   run        run one pass of a behavior tree on a ticket
   log        append to or show a ticket's decision log
   runner     start, stop or inspect the runner daemon
-  enqueue    hand a ticket to abt as one work type
+  enqueue    hand one or more tickets to abt as a work type
+  create     make a ticket from free text and enqueue it
+  block      make one ticket block another
   reply      write a chat reply to an escalation on the ticket
   onboard    onboard a repo (not implemented)
   validate   validate a behavior-tree or merge-policy YAML file
@@ -70,7 +72,7 @@ async function main(argv: string[]): Promise<number> {
 
   if (command === "runner") return runnerCommand(rest);
 
-  if (command === "enqueue" || command === "reply") return primaryCommand(command, rest);
+  if (command === "enqueue" || command === "reply" || command === "create" || command === "block") return primaryCommand(command, rest);
 
   if (command === "upgrade") return upgradeCommand(rest);
 

@@ -76,9 +76,17 @@ ABT_TEST_LINEAR=1 ABT_TEST_LINEAR_ADAPTER=/path/to/sandbox-workflow.md LINEAR_AP
 
 ## Primary agent: enqueue
 
-From a Claude Code chat, `/abt:enqueue <ticket> [work type]` runs `abt enqueue`: one tracker write (the abt marker and the work type), a nudge to the runner and a one-line ack with the tracker link. It refuses only an unreadable ticket, a ticket with no work type, or a project with no agreed merge policy (it then offers onboarding). With the runner down the ticket is still enqueued, with a "runner not running" note and an offer to start it; the runner is never started without a yes. A chat reply to an escalation goes through `abt reply <ticket> <text>`, which writes it to the ticket as the owner's comment, so the tracker stays the one resume path.
+From a Claude Code chat, `/abt:enqueue` takes tickets or free text. `abt enqueue <ticket>` makes one tracker write (the abt marker and the work type), nudges the runner and acks in one line with the tracker link. It refuses only an unreadable ticket, a ticket with no work type, or a project with no agreed merge policy (it then offers onboarding). With the runner down the ticket is still enqueued, with a "runner not running" note and an offer to start it; the runner is never started without a yes. A chat reply to an escalation goes through `abt reply <ticket> <text>`, which writes it to the ticket as the owner's comment, so the tracker stays the one resume path.
+
+- **Batch**: `abt enqueue <ticket> <ticket> ...` enqueues each and returns a table of ticket, work type, blocked by (blockers that have not merged) and expected start. A ticket that cannot be queued is a row saying why; it does not stop the others.
+- **Free text**: `abt create [flags] -- <text>` makes the tracker ticket first and then enqueues it. Type and policy are checked before the ticket exists, so a refusal leaves nothing behind.
+- **Collision check**: when two tickets (in a batch, or a ticket against abt tickets already in flight) name the same file or module, the reply asks whether the newer one should wait for the older. `abt block <ticket> <blocker>` writes the edge once the user says yes.
+- **Type precedence**: an explicit `--type` or the ticket's own label beats the type the entry point implies (`--entry`), which beats the agent's guess (`--inferred`). A guess is written back to the tracker as a `work-type-inferred` comment and the ack says "(inferred)". The agent asks only when the type is ambiguous, or when it would guess implement for exploratory work (`--exploratory`). `bootstrap` is never inferred.
 
 ```bash
 bin/abt enqueue ABT-62 --type implement
+bin/abt enqueue ABT-62 ABT-63:research ABT-64 --inferred implement
+bin/abt create --inferred implement -- "Add a --json flag to abt status"
+bin/abt block ABT-64 ABT-62
 bin/abt reply ABT-62 "answer: use postgres"
 ```

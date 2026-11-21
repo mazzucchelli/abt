@@ -108,6 +108,12 @@ export class InMemoryTracker implements Tracker {
     this.#get(id).risk = tier;
   }
 
+  async addBlocker(id: string, blocker: string): Promise<void> {
+    const t = this.#get(id);
+    this.#get(blocker);
+    if (!t.blockedBy.includes(blocker)) t.blockedBy.push(blocker);
+  }
+
   #get(id: string): Ticket {
     const t = this.#tickets.get(id);
     if (!t) throw new Error(`no such ticket: ${id}`);

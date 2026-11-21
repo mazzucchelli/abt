@@ -155,6 +155,9 @@ test("abt runner nudge says so when no runner is listening", () => {
 test("abt enqueue and abt reply print usage on missing arguments and fail clearly without an adapter doc", () => {
   assert.equal(abt("enqueue").status, 2);
   assert.equal(abt("reply", "ABT-1").status, 2);
+  assert.equal(abt("create").status, 2);
+  assert.equal(abt("block", "ABT-1").status, 2);
+  assert.equal(abt("enqueue", "ABT-1", "--type").status, 2);
   const r = abt("enqueue", "ABT-1", "--type", "implement", "--project", "test/fixtures");
   assert.equal(r.status, 1);
   assert.match(r.stderr, /^abt: .*workflow\.md/);
