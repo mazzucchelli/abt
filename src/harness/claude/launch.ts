@@ -55,6 +55,8 @@ export interface WorkerLaunch extends Common {
   node?: string;
   run?: string;
   defaultBranch?: string;
+  /** Extra environment for the worker (its isolated ports, database and build output). abt's own variables win. */
+  workerEnv?: Record<string, string>;
   /** File counting the Stop hook's continues in this session. */
   stateFile?: string;
   /** Poll a worker that was still running: resume its session instead of starting one. */
@@ -116,6 +118,7 @@ export function buildLaunch(l: WorkerLaunch | JudgeLaunch): SpawnSpec {
   ];
 
   const env = allowedHostEnv(l.hostEnv);
+  if (l.kind === "worker" && l.workerEnv) Object.assign(env, l.workerEnv);
   if (l.kind === "worker" && l.ticket) {
     env.ABT_ROLE = "worker";
     env.ABT_TICKET = l.ticket;

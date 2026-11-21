@@ -52,6 +52,12 @@ Domain terms for the AI workflow. Definitions only, no implementation detail.
 
 **Worker worktree**: The isolated checkout a single worker agent works in, tied to exactly one ticket and one branch for the life of that run.
 
+**Isolation lane**: The number a worker's worktree holds while it exists, from which its own ports, database and build output are derived (as the adapter doc says), so parallel workers' real-app verification never collides. Not a worker slot: a waiting ticket keeps its lane.
+
+**Branch upkeep**: After a landing, the runner rebasing each other open worker branch onto the new default branch in its worktree and pushing it with a lease. A conflict goes back to the worker, then to the human if the worker cannot resolve it.
+
+**Kept worktree**: A failed run's worker worktree, kept for a time (7 days by default) so the human can look at it, then removed. A worktree with uncommitted work is never removed; it is reported to the human.
+
 **Landing strategy**: How a project lines up verified PRs to merge into the default branch, one after another. Chosen per project; the rest of the workflow does not change with it.
 
 **Principle**: A single-rule coding or verification constraint the agent follows, stored as a small standalone skill file with a "when to apply" trigger. It constrains how code is written and checked, never a process.

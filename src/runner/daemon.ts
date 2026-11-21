@@ -14,6 +14,12 @@ import {
 } from "./scheduler.ts";
 import { listenForNudges } from "./socket.ts";
 import type { Workers } from "./workers.ts";
+import { sweepWorktrees, type OrphanReport } from "./worktrees.ts";
+import { updateOpenBranches } from "../upkeep.ts";
+import type { Workspace } from "../workspace/contract.ts";
+import type { WorkerEnvs } from "../workspace/env.ts";
+import type { Notifier } from "../notify/contract.ts";
+import { LIFECYCLE_STATES, type LifecycleState } from "../tracker/contract.ts";
 
 /** Tickets waiting on a worker, CI or an approval are re-run this often. */
 export const POLL_MS = 60_000;
@@ -34,6 +40,14 @@ export interface RunnerProject {
   profile?: string;
   /** Validates the project's PRs that touch abt files and posts their `abt/validate` status. */
   prValidator?: PrValidator;
+  /** The project's worker worktrees. With it the runner sweeps them at start and on each scan; without it none are touched. */
+  workspace?: Workspace;
+  /** Frees a removed worktree's ports, database and build output lane. */
+  envs?: WorkerEnvs;
+  /** The project's default branch. With it (and a workspace) a landing rebases every other open worker branch onto it. */
+  defaultBranch?: string;
+  /** Pushed when an unresolvable rebase conflict goes to the human. */
+  notifier?: Notifier;
 }
 
 export interface RunnerDeps {
@@ -49,6 +63,8 @@ export interface RunnerDeps {
   store: DispatchStore;
   /** Slot cap and wall-clock caps. Defaults: 3 slots; 45, 90 and 180 minutes by grade. */
   scheduling?: SchedulingConfig;
+  /** How long a failed run's worktree is kept. Default 7 days. */
+  worktreeTtlMs?: number;
   /** Per-run transcript retention: pruned 30 days after a ticket's terminal state. Omit for none. */
   retention?: TranscriptRetention;
   /** Where the nudge socket listens. Omit for no socket. */
@@ -78,6 +94,8 @@ export class Runner {
   readonly #admitted = new Set<string>();
   /** Keys whose last pass ended since the last poll, scan or nudge: pass-end ticks leave them for the next poll. */
   readonly #cooling = new Set<string>();
+  /** Dirty orphan worktrees already reported to the human in this run. */
+  readonly #reported = new Set<string>();
   #ticks: Promise<void> = Promise.resolve();
   #stops: (() => void)[] = [];
   #server: Server | undefined;
@@ -94,6 +112,7 @@ export class Runner {
       this.#lock.heartbeat();
       this.#d.store.clear();
       await this.#recover();
+      await this.#sweepWorktrees();
       this.#stops.push(this.#d.workers.onExit((ticket) => this.#track(this.nudge(ticket).then(() => undefined), "worker exit")));
       this.#stops.push(this.#d.timers.every(HEARTBEAT_MS, () => this.#lock.heartbeat()));
       this.#stops.push(this.#d.timers.every(POLL_MS, () => this.#track(this.#poll(), "poll")));
@@ -173,6 +192,7 @@ export class Runner {
         this.#error(e, `PR validation for ${project.name}`);
       }
     }
+    await this.#sweepWorktrees();
     const retention = this.#d.retention;
     if (!retention) return;
     try {
@@ -275,6 +295,57 @@ export class Runner {
     }
   }
 
+  /** A ticket that just reached Done with code merged (not research): every other open worker branch is rebased onto the new default branch. */
+  async #afterLanding(project: RunnerProject, ticket: string): Promise<void> {
+    const workspace = project.workspace;
+    if (!workspace || !project.defaultBranch) return;
+    try {
+      const t = await project.tracker.readTicket(ticket);
+      if (t.state !== "Done" || t.workType === "research") return;
+      await updateOpenBranches(
+        { tracker: project.tracker, workspace, log: project.log, newId: this.#d.newId, defaultBranch: project.defaultBranch, ...(project.notifier && { notifier: project.notifier }) },
+        ticket,
+      );
+    } catch (e) {
+      this.#error(e, `branch upkeep after ${project.name}:${ticket}`);
+    }
+  }
+
+  /**
+   * Worktree hygiene: clean orphans are removed and failed runs' worktrees expire after their TTL. Dirty ones are
+   * only reported (once per runner run), never deleted. A tracker that cannot be read skips the project: an
+   * unreachable ticket must never look like an unknown one.
+   */
+  async #sweepWorktrees(): Promise<void> {
+    for (const project of this.#d.projects) {
+      const workspace = project.workspace;
+      if (!workspace) continue;
+      try {
+        const states = new Map<string, LifecycleState>();
+        for (const state of LIFECYCLE_STATES) for (const t of await project.tracker.listByState(state)) states.set(t.id, state);
+        await sweepWorktrees({
+          workspace, clock: this.#d.clock, stateOf: async (t) => states.get(t),
+          ...(project.envs && { envs: project.envs }), ...(this.#d.worktreeTtlMs !== undefined && { ttlMs: this.#d.worktreeTtlMs }),
+          report: (o) => this.#reportOrphan(project, o),
+        });
+      } catch (e) {
+        this.#error(e, `worktree hygiene for ${project.name}`);
+      }
+    }
+  }
+
+  async #reportOrphan(project: RunnerProject, o: OrphanReport): Promise<void> {
+    const key = `${project.name}:${o.path}`;
+    if (this.#reported.has(key)) return;
+    this.#reported.add(key);
+    this.#error(new Error(`${o.ticket}: ${o.why} (${o.path})`), "worktree hygiene");
+    try {
+      await project.tracker.postComment(o.ticket, { kind: "worktree-orphan", body: `Worktree ${o.path}: ${o.why}. Look at it and remove it yourself.`, data: { path: o.path } });
+    } catch {
+      // Not a ticket this tracker knows: the console line above is the report.
+    }
+  }
+
   /** Blockers that have not merged (their ticket is not Done), from the tracker and from what a worker reported mid-run. */
   async #unmet(project: RunnerProject, t: Ticket, facts: TicketFacts): Promise<string[]> {
     const unmet: string[] = [];
@@ -342,8 +413,9 @@ export class Runner {
         do {
           entry.rerun = false;
           try {
-            const r = await runTicket(project.deps(ticket));
+            const r = await runTicket({ ...project.deps(ticket), keepFailed: this.#d.clock });
             this.#d.store.set(key, { status: r.terminal || r.result === "skipped" ? "released" : "running", since: this.#d.clock.now().toISOString() });
+            if (r.terminal && r.result === "ok") await this.#afterLanding(project, ticket);
           } catch (e) {
             this.#d.store.set(key, { status: "retrying", since: this.#d.clock.now().toISOString() });
             this.#error(e, `pass for ${key}`);
