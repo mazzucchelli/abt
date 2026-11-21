@@ -261,3 +261,10 @@ test("an engines bump in package.json is not a dependency change", async () => {
   assert.equal(a.tier, "medium");
   assert.ok(!a.hits.some((h) => /dependency [a-z]/.test(h.reason) && h.tier === "high"));
 });
+
+test("a change to the pinned abt files (trees, checks, facts snapshot) is high risk, like the policy and adapter doc", async () => {
+  const { computeFloor } = await import("../../src/risk/rules.ts");
+  for (const path of [".agents/abt/trees/land.yaml", ".agents/abt/checks/lint.sh", ".agents/abt/facts.yaml"]) {
+    assert.equal(computeFloor({ files: [{ path, added: 1, removed: 0 }] }).floor, "high", path);
+  }
+});

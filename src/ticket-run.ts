@@ -13,6 +13,8 @@ import type { Clock } from "./clock.ts";
 import { isScalar, parseDocument, visit } from "yaml";
 import { parseTree, TreeError } from "./tree.ts";
 import { LayeredTrees, resolveTree, type TreeStore } from "./trees.ts";
+import { checkPins, type PinCheck, type PinStore } from "./onboard/pins.ts";
+import type { DefaultBranchFiles } from "./onboard/host.ts";
 
 export interface TicketRunDeps extends Omit<PassDeps, "tree" | "run" | "file"> {
   /** Default trees shipped with the plugin. */
@@ -27,6 +29,11 @@ export interface TicketRunDeps extends Omit<PassDeps, "tree" | "run" | "file"> {
   risk?: Pick<RiskDeps, "classifier" | "map" | "timeoutMs" | "minConfidence" | "maxPatchChars">;
   /** The project's merge policy, read from its default branch. Without one abt never merges. */
   policy?: PolicyStore;
+  /**
+   * The project's pins, kept outside the repo. With them a protected file that no longer matches its pin holds every
+   * ticket in Needs you, and no merge happens until the files are pinned (the owner merged the onboarding PR by hand).
+   */
+  pins?: { files: DefaultBranchFiles; store: PinStore; project: string };
   /** When given, a failed run's worktree is kept and stamped with this clock's time instead of removed; the runner's sweep removes it after its TTL. */
   keepFailed?: Clock;
 }
@@ -75,6 +82,14 @@ export async function runTicket(deps: TicketRunDeps): Promise<TicketRunResult> {
     if (r.outcome === "waiting" || r.outcome === "reminded") return { run, result: "skipped", terminal: false };
     first = await tracker.readTicket(ticket);
   }
+  const { pins } = deps;
+  const pin = pins ? await checkPins(pins.files, pins.store, pins.project) : undefined;
+  if (pins && pin?.status === "mismatch" && first.state !== "Done" && first.state !== "Abandoned") {
+    const why = `protected abt files changed without their pin: ${pin.changed.join(", ")}`;
+    escalate(deps, run, why, "the owner to read the change and, if it is right, re-pin with `abt onboard pin`", pins.project);
+    await finish(deps, "fail", "Needs you");
+    return { run, result: "skipped", terminal: false };
+  }
   if (first.workType === "research") return runResearch(deps, run);
   const state = first.state;
   if (state === "In review" && (await workspace.find(ticket)) !== undefined) {
@@ -83,7 +98,7 @@ export async function runTicket(deps: TicketRunDeps): Promise<TicketRunResult> {
     await finish(deps, "open");
     return { run, result: "open", terminal: true };
   }
-  if (state === "In review") return runLanding(deps, run);
+  if (state === "In review") return runLanding(deps, run, pin);
   if (state !== "Todo" && state !== "In progress") return { run, result: "skipped", terminal: false };
 
   const trees = new LayeredTrees(deps.project, deps.plugin);
@@ -137,10 +152,11 @@ export async function runTicket(deps: TicketRunDeps): Promise<TicketRunResult> {
  * policy, or in pr-only mode, nothing runs and the PR stays open. A land tree that is not the one the policy was
  * agreed with blocks merging and sends the ticket to Needs you. A merged PR is Done.
  */
-async function runLanding(deps: TicketRunDeps, run: string): Promise<TicketRunResult> {
+async function runLanding(deps: TicketRunDeps, run: string, pin?: PinCheck): Promise<TicketRunResult> {
   const { tracker, codeHost, log, ticket } = deps;
   const agreed = await loadPolicy(deps.policy);
-  if (agreed.status !== "agreed" || agreed.policy.mode !== "merge") {
+  const unpinned = pin?.status === "unpinned";
+  if (agreed.status !== "agreed" || agreed.policy.mode !== "merge" || unpinned) {
     if ((await codeHost.readFacts(ticket)).merged) {
       await finish(deps, "ok", "Done");
       return { run, result: "ok", terminal: true };
@@ -148,6 +164,7 @@ async function runLanding(deps: TicketRunDeps, run: string): Promise<TicketRunRe
     const why =
       agreed.status === "none" ? "no merge policy: the PR stays open and abt does not merge it"
       : agreed.status === "invalid" ? `${agreed.file} is invalid (${agreed.problems.join("; ")}): the PR stays open and abt does not merge it`
+      : agreed.status === "agreed" && agreed.policy.mode === "merge" ? "the project's abt files are not pinned yet (the onboarding PR has not been merged by hand): the PR stays open and abt does not merge it"
       : "the merge policy's mode is pr-only: the PR stays open and abt does not merge it";
     // Polled every minute: say it once, not on every poll.
     if (log.read(ticket).findLast((r) => r.node === "land")?.why !== why) {

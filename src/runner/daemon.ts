@@ -41,6 +41,8 @@ export interface RunnerProject {
   profile?: string;
   /** Validates the project's PRs that touch abt files and posts their `abt/validate` status. */
   prValidator?: PrValidator;
+  /** Pins the project's abt files once its onboarding PR is merged by hand. Called on every scan; does nothing when none is pending. */
+  onboarding?: { settle(): Promise<unknown> };
   /** The project's worker worktrees. With it the runner sweeps them at start and on each scan; without it none are touched. */
   workspace?: Workspace;
   /** Frees a removed worktree's ports, database and build output lane. */
@@ -191,6 +193,11 @@ export class Runner {
         await project.prValidator?.sweep();
       } catch (e) {
         this.#error(e, `PR validation for ${project.name}`);
+      }
+      try {
+        await project.onboarding?.settle();
+      } catch (e) {
+        this.#error(e, `onboarding for ${project.name}`);
       }
     }
     await this.#sweepWorktrees();
