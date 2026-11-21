@@ -7,7 +7,7 @@ import { join } from "node:path";
 import { stringify } from "yaml";
 import { FakeClock } from "../src/clock.ts";
 import { FakeCodeHost } from "../src/codehost/fake.ts";
-import { FakeHarness } from "../src/harness/fake.ts";
+import { FakeHarness, specWriter } from "../src/harness/fake.ts";
 import { MemoryPolicy } from "../src/landing/policy.ts";
 import { DecisionLog } from "../src/log/store.ts";
 import { runTicket } from "../src/ticket-run.ts";
@@ -42,6 +42,7 @@ async function world(opts: { tier?: RiskTier; policy?: string | null; project?: 
   const codeHost = new FakeCodeHost();
   const harness = new FakeHarness();
   harness.script("tdd-afk", { result: "ok" });
+  harness.script("to-spec", specWriter(tracker));
   const workspace = new FakeWorkspace();
   let n = 0;
   const newId = () => `id-${++n}`;
@@ -119,14 +120,12 @@ test("a risk cap of none sends even a low ticket to wait for approval", async ()
   assert.equal((await w.codeHost.readFacts(w.id)).merged, false);
 });
 
-test("a high ticket stops at Needs you before it is claimed or any worker runs", async () => {
+test("a high ticket is claimed and its spec written, then stops at Needs you before any implementation worker runs", async () => {
   const w = await world({ tier: "high" });
   const r = await w.run();
-  assert.equal(r.terminal, true);
+  assert.equal(r.result, "running");
   assert.equal(await w.state(), "Needs you");
-  assert.deepEqual(w.harness.requests, []);
-  assert.deepEqual(w.workspace.events, []);
-  assert.equal((await w.tracker.readTicket(w.id)).claimed, false);
+  assert.deepEqual(w.harness.requests.map((q) => q.skill), ["to-spec"]);
   assert.match(w.kinds("escalation")[0]!.why, /high risk/);
 });
 

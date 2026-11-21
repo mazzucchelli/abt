@@ -107,12 +107,8 @@ export async function runTicket(deps: TicketRunDeps): Promise<TicketRunResult> {
 
   await assessOnce(deps, run);
 
-  // A high-risk ticket is a human's call: it stops here, before it is claimed and before any worker runs.
-  if (effectiveTier(log.read(ticket))?.tier === "high") {
-    escalate(deps, run, "high risk: a human decides before any work starts", "a human to approve the work, or to lower the risk tier");
-    await finish(deps, "fail", "Needs you");
-    return { run, result: "fail", terminal: true };
-  }
+  // A high-risk ticket is a human's call, made on its spec: the implement tree's spec gate stops it in Needs you,
+  // and the runner refuses any implementation worker until the owner has approved.
 
   const claim = await pass("claim");
   if (claim.result !== "ok") return { run, result: claim.result, terminal: false };

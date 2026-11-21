@@ -110,6 +110,8 @@ Domain terms for the AI workflow. Definitions only, no implementation detail.
 
 **Spec skip**: Going from ticket straight to implementation with the ticket body serving as the spec. Allowed only when the change is low risk, its touched surface is covered and its grade is not hard. Always logged, never silent.
 
+**Spec approval**: The owner's yes to a spec, tied to the ticket's risk. Medium: given at the PR, which links the spec. High: the ticket stops in Needs you until the owner replies, and the ticket's foreseeable ask-points are batched into that one approval; no implementation worker starts before it. Low: none, since a low, covered ticket skips the spec.
+
 **abt**: Short for agentic behavior tree, the name of this workflow and its repo. Everything it owns, in a project or globally, sits under an `abt/` folder so it is recognisable.
 
 **Pin**: A recorded fingerprint of one of a project's protected abt files (merge policy, adapter doc, trees, check scripts), kept outside the project so it can't be changed together with the file it guards. A file that no longer matches its pin stops the runner for that project until the human looks. Pins move only when the human merges a change to the file.

@@ -5,7 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { FakeClock } from "../src/clock.ts";
 import { FakeCodeHost } from "../src/codehost/fake.ts";
-import { FakeHarness } from "../src/harness/fake.ts";
+import { FakeHarness, specWriter } from "../src/harness/fake.ts";
 import { FakeJudge } from "../src/judge/fake.ts";
 import { DecisionLog } from "../src/log/store.ts";
 import { effectiveTier } from "../src/risk/assess.ts";
@@ -23,6 +23,7 @@ async function world(opts: { workType?: WorkType; risk?: RiskTier } = {}) {
   const codeHost = new FakeCodeHost();
   const harness = new FakeHarness();
   harness.script("tdd-afk", { result: "ok" });
+  harness.script("to-spec", specWriter(tracker));
   harness.script("research", {
     result: "ok",
     effect: async () => {

@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { FakeClock } from "../../src/clock.ts";
 import { FakeCodeHost } from "../../src/codehost/fake.ts";
-import { FakeHarness } from "../../src/harness/fake.ts";
+import { FakeHarness, specWriter } from "../../src/harness/fake.ts";
 import { DecisionLog } from "../../src/log/store.ts";
 import { DispatchStore } from "../../src/runner/dispatch-store.ts";
 import { Runner, type RunnerDeps, type RunnerProject } from "../../src/runner/daemon.ts";
@@ -23,6 +23,7 @@ export function machine(trees: Record<string, string> = {}, extra: Partial<Runne
   const codeHost = new FakeCodeHost();
   const harness = new FakeHarness();
   harness.script("tdd-afk", { result: "ok" });
+  harness.script("to-spec", specWriter(tracker));
   const workspace = new FakeWorkspace();
   const workers = new FakeWorkers();
   let n = 0;
@@ -50,7 +51,7 @@ export function machine(trees: Record<string, string> = {}, extra: Partial<Runne
       onError: (e, where) => errors.push(`${where}: ${(e as Error).message}`),
     });
   };
-  const ticket = async (title = "feat: add the thing", more: { priority?: number; blockedBy?: string[] } = {}) => (await tracker.createTicket({ title, body: "", ...more })).id;
+  const ticket = async (title = "feat: add the thing", more: { priority?: number; blockedBy?: string[] } = {}) => (await tracker.createTicket({ title, body: "", risk: "low", ...more })).id; // low risk: these tests are about dispatch, and a low, covered ticket skips the spec step
   const state = async (id: string) => (await tracker.readTicket(id)).state;
   return { home, clock, tracker, codeHost, harness, workspace, workers, log, project, runner, ticket, state, alive, errors };
 }

@@ -6,7 +6,7 @@ import { join } from "node:path";
 import { FakeClock } from "../src/clock.ts";
 import { FakeCodeHost } from "../src/codehost/fake.ts";
 import { handleAskPoint } from "../src/escalation.ts";
-import { FakeHarness } from "../src/harness/fake.ts";
+import { FakeHarness, specWriter } from "../src/harness/fake.ts";
 import { DecisionLog } from "../src/log/store.ts";
 import { FakeNotifier } from "../src/notify/fake.ts";
 import { runTicket } from "../src/ticket-run.ts";
@@ -22,6 +22,7 @@ async function world(risk: "low" | "medium" = "low") {
   const codeHost = new FakeCodeHost();
   const harness = new FakeHarness();
   harness.script("tdd-afk", { result: "ok" });
+  harness.script("to-spec", specWriter(tracker));
   const workspace = new FakeWorkspace();
   const notifier = new FakeNotifier();
   const clock = new FakeClock();

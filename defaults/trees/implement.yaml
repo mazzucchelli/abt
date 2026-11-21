@@ -1,8 +1,21 @@
 # The first end-to-end path: a worker does the work, a PR is ensured, and landing is a stub.
 # The worker is retried: the runner steps its model and effort up after every two failures, and
 # stops retrying at the first failure at the hardest level (2 + 2 failures below hard, then 1 at hard).
+#
+# Planning matches risk: before any implementation a spec is on the tracker, or the skip is logged
+# (a low-risk, covered ticket that is not graded hard uses its own body as the spec). A spec whose
+# criteria are not all mapped to `proved by:` or `gap` is refused and /to-spec runs again. A high-risk
+# spec waits for the owner's approval; a medium one is approved at the PR.
 id: implement
 seq:
+  - retry: 3
+    do:
+      ensure:
+        cond:
+          check: spec-ready
+        else:
+          agent: to-spec
+  - action: await-spec-approval
   - retry: 5
     do:
       agent: tdd-afk

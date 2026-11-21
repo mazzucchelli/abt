@@ -5,7 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { FakeClock } from "../src/clock.ts";
 import { FakeCodeHost } from "../src/codehost/fake.ts";
-import { FakeHarness } from "../src/harness/fake.ts";
+import { FakeHarness, specWriter } from "../src/harness/fake.ts";
 import { DecisionLog } from "../src/log/store.ts";
 import { runTicket } from "../src/ticket-run.ts";
 import { DirTrees, MemoryTrees } from "../src/trees.ts";
@@ -20,6 +20,7 @@ async function world(project: Record<string, string> = {}) {
   const codeHost = new FakeCodeHost();
   const harness = new FakeHarness();
   harness.script("tdd-afk", { result: "ok" });
+  harness.script("to-spec", specWriter(tracker));
   const workspace = new FakeWorkspace();
   let n = 0;
   const newId = () => `id-${++n}`;
@@ -38,7 +39,7 @@ test("a Todo ticket goes to In review with a PR linked, and every node outcome i
   assert.equal(r.result, "open");
   assert.equal(r.terminal, true);
   assert.equal(await w.state(), "In review");
-  assert.deepEqual((await w.tracker.readTicket(w.id)).links.map((l) => l.url), [`https://fake.host/${w.id}/pr/1`]);
+  assert.deepEqual((await w.tracker.readTicket(w.id)).links.map((l) => l.url), [`https://fake.tracker/${w.id}/spec`, `https://fake.host/${w.id}/pr/1`]);
   assert.deepEqual(w.workspace.events, [`add ${w.id} feat/fake-1-add-the-thing`, `remove ${w.id}`]);
 
   const outcomes = w.log.read(w.id).filter((x) => x.kind === "node-outcome");
@@ -47,14 +48,21 @@ test("a Todo ticket goes to In review with a PR linked, and every node outcome i
     outcomes.map((x) => `${x.node}=${x.result}`),
     [
       "claim=ok",
+      "implement/0/0/0=fail",
+      "implement/0/0/1/0=ok",
+      "implement/0/0/1/1=ok",
+      "implement/0/0/1=ok",
       "implement/0/0=ok",
       "implement/0=ok",
-      "implement/1/0=fail",
-      "implement/1/1/0=ok",
-      "implement/1/1/1=ok",
-      "implement/1/1=ok",
       "implement/1=ok",
-      "implement/2=open",
+      "implement/2/0=ok",
+      "implement/2=ok",
+      "implement/3/0=fail",
+      "implement/3/1/0=ok",
+      "implement/3/1/1=ok",
+      "implement/3/1=ok",
+      "implement/3=ok",
+      "implement/4=open",
       "implement=open",
       "cleanup=ok",
     ],
@@ -101,9 +109,9 @@ test("a worker that keeps failing steps up, then ends in cleanup: worktree remov
   assert.equal(await w.state(), "Needs you");
   assert.equal(await w.workspace.find(w.id), undefined);
   // Two failures at standard, one at hard, then nothing left to step up to.
-  assert.deepEqual(w.harness.requests.map((q) => q.model), ["claude-sonnet-5-5", "claude-sonnet-5-5", "claude-opus-5-5"]);
+  assert.deepEqual(w.harness.requests.filter((q) => q.skill === "tdd-afk").map((q) => q.model), ["claude-sonnet-5-5", "claude-sonnet-5-5", "claude-opus-5-5"]);
   const recs = w.log.read(w.id);
-  assert.equal(recs.find((x) => x.kind === "node-outcome" && x.node === "implement/0/0")!.why, "tests never went green (exit 1)");
+  assert.equal(recs.find((x) => x.kind === "node-outcome" && x.node === "implement/2/0")!.why, "tests never went green (exit 1)");
   assert.equal(recs.findLast((x) => x.node === "cleanup")!.result, "ok");
   assert.match(recs.findLast((x) => x.kind === "escalation")!.why, /failed at hard|tests never went green/);
   assert.equal((await w.comments()).filter((c) => c.kind === "summary").length, 1);
@@ -161,10 +169,10 @@ test("a running worker leaves the worktree, posts nothing and is polled on the n
   assert.equal(first.result, "running");
   assert.equal(first.terminal, false);
   assert.ok(await w.workspace.find(w.id));
-  assert.deepEqual(await w.comments(), []);
+  assert.deepEqual((await w.comments()).filter((c) => c.kind !== "spec"), []);
   assert.equal((await w.run()).terminal, true);
   assert.equal(await w.state(), "In review");
-  assert.equal(new Set(w.harness.requests.map((q) => q.session ?? "")).size, 2);
+  assert.equal(new Set(w.harness.requests.filter((q) => q.skill === "tdd-afk").map((q) => q.session ?? "")).size, 2);
 });
 
 test("re-running after a crash in the middle of the worker step resumes from the facts", async () => {
@@ -172,7 +180,7 @@ test("re-running after a crash in the middle of the worker step resumes from the
   const real = w.harness.run.bind(w.harness);
   let crashed = false;
   w.harness.run = async (req) => {
-    if (!crashed) {
+    if (!crashed && req.skill === "tdd-afk") {
       crashed = true;
       throw new Error("process died");
     }
@@ -185,7 +193,7 @@ test("re-running after a crash in the middle of the worker step resumes from the
   const r = await w.run();
   assert.equal(r.terminal, true);
   assert.equal(await w.state(), "In review");
-  assert.equal((await w.tracker.readTicket(w.id)).links.length, 1);
+  assert.equal((await w.tracker.readTicket(w.id)).links.length, 2);
   assert.deepEqual(w.workspace.events, [`add ${w.id} feat/fake-1-add-the-thing`, `remove ${w.id}`]);
 });
 
@@ -218,7 +226,7 @@ test("a crash after the PR was opened but before cleanup still cleans up and sum
   assert.equal(r.terminal, true);
   assert.equal(await w.workspace.find(w.id), undefined);
   assert.equal((await w.comments()).filter((c) => c.kind === "summary").length, 1);
-  assert.equal(w.harness.requests.length, 1, "the worker is not dispatched again");
+  assert.equal(w.harness.requests.filter((q) => q.skill === "tdd-afk").length, 1, "the worker is not dispatched again");
 });
 
 test("with risk assessment wired in, intake assesses the ticket, labels it and logs the record", async () => {

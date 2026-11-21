@@ -298,6 +298,9 @@ test("a worker is launched at the grade the ticket's risk needs, and the pinned 
   await w.claim();
   w.harness.script("tdd-afk", { result: "ok" });
   w.log.append(w.ticket, { run: "r0", node: null, kind: "risk-assessment", decision: "risk tier high", why: "w", evidence: null, result: "ok", payload: { tier: "high", reasons: [] } });
+  // The owner approved the spec: a high-risk ticket's implementation worker never starts before that.
+  w.log.append(w.ticket, { run: "r0", node: null, kind: "escalation", decision: "ticket sent to Needs you", why: "w", evidence: null, result: "fail", payload: { question: "Approve the spec? yes", reason: "w", needs: "an answer" } });
+  w.log.append(w.ticket, { run: "r0", node: null, kind: "override", decision: "owner answered", why: "w", evidence: null, result: "ok", payload: { target: "escalation", by: "owner", value: { command: "answer" } } });
   await w.pass("agent: tdd-afk");
   assert.deepEqual([w.harness.requests[0]!.model, w.harness.requests[0]!.effort], ["claude-opus-5-5", "high"]);
   const routing = w.log.read(w.ticket).find((r) => r.kind === "routing")!;

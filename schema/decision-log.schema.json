@@ -170,7 +170,8 @@
               "reminder": { "type": "boolean" },
               "pointers": { "type": "array", "items": { "type": "string", "pattern": "^https?://\\S+$" } },
               "bootstrap": { "type": "string", "minLength": 1 },
-              "bootstrapKey": { "type": "string", "minLength": 1 }
+              "bootstrapKey": { "type": "string", "minLength": 1 },
+              "specSkip": { "type": "boolean" }
             },
             "additionalProperties": false
           }

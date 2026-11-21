@@ -5,7 +5,7 @@
   "$ref": "#/$defs/node",
   "$defs": {
     "id": { "type": "string", "minLength": 1 },
-    "checkName": { "enum": ["branch-up-to-date", "required-checks-green", "diff-size", "trees-valid", "feedback-check", "pr-exists", "findings-linked", "gist-filled", "review-auto", "pr-merged", "ci-check-green", "head-sha-unchanged", "pr-approved", "risk-within-cap"] },
+    "checkName": { "enum": ["branch-up-to-date", "required-checks-green", "diff-size", "trees-valid", "feedback-check", "pr-exists", "spec-ready", "findings-linked", "gist-filled", "review-auto", "pr-merged", "ci-check-green", "head-sha-unchanged", "pr-approved", "risk-within-cap"] },
     "text": { "type": "string", "minLength": 1 },
     "duration": { "type": "string", "pattern": "^[0-9]+(ms|s|m|h|d)$" },
 
