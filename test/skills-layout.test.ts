@@ -30,7 +30,7 @@ const PROCEDURES = [
   "implement", "tdd", "code-review", "diagnosing-bugs", "research", "spike", "pr", "refactoring",
   "setup-pre-commit", "setup-ts-deep-modules", "grilling", "domain-modeling", "spec-writing", "ticket-splitting", "triaging",
 ];
-const COMMANDS = ["enqueue", "grill", "domain-model", "to-spec", "to-tickets", "triage"];
+const COMMANDS = ["enqueue", "grill-with-docs", "to-spec", "to-tickets", "triage"];
 const REFERENCES = ["codebase-design", "writing-for-agents", "experience-first"];
 
 test("plugin.json registers every procedure folder and nothing else as a skill", () => {
@@ -68,8 +68,9 @@ test("the commands folder is the whole menu, and each command is a thin visible 
 test("no command shares a name with a procedure, so abt:<name> always resolves to one thing", () => {
   // A worker invokes abt:<procedure> through the Skill tool; a command of the same name could load in its place.
   for (const c of COMMANDS) assert.ok(!PROCEDURES.includes(c), `command ${c} clashes with a procedure`);
-  assert.match(read("commands/grill.md"), /procedures\/grilling\/SKILL\.md/);
-  assert.match(read("commands/domain-model.md"), /procedures\/domain-modeling\/SKILL\.md/);
+  // One input for the interview and the docs, as upstream grill-with-docs does: both procedures run together.
+  assert.match(read("commands/grill-with-docs.md"), /procedures\/grilling\/SKILL\.md/);
+  assert.match(read("commands/grill-with-docs.md"), /procedures\/domain-modeling\/SKILL\.md/);
   assert.match(read("commands/to-spec.md"), /procedures\/spec-writing\/SKILL\.md/);
   assert.match(read("commands/to-tickets.md"), /procedures\/ticket-splitting\/SKILL\.md/);
   assert.match(read("commands/triage.md"), /procedures\/triaging\/SKILL\.md/);

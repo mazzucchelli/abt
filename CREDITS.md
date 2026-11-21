@@ -13,9 +13,8 @@ Precedence: project `CLAUDE.md`, then principles, then generic skill advice. A d
 
 | abt file | Upstream | Action | Divergence |
 | --- | --- | --- | --- |
-| `commands/domain-model.md` | original | original | Original. Thin wrapper that runs procedures/domain-modeling with the human. |
 | `commands/enqueue.md` | original | original | Original. Dispatches work to the runner. |
-| `commands/grill.md` | original | original | Original. Thin wrapper that runs procedures/grilling with the human. |
+| `commands/grill-with-docs.md` | `mattpocock-skills`@49dd158 skills/engineering/grill-with-docs/SKILL.md | adapted | Runs procedures/grilling and procedures/domain-modeling together with the human, by path instead of two Skill calls; replaces separate grill and domain-model commands. |
 | `commands/to-spec.md` | original | original | Original. Thin wrapper that runs procedures/spec-writing with the human. |
 | `commands/to-tickets.md` | original | original | Original. Thin wrapper that runs procedures/ticket-splitting with the human. |
 | `commands/triage.md` | original | original | Original. Thin wrapper that runs procedures/triaging with the human. |
