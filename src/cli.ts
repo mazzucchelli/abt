@@ -14,6 +14,7 @@ import { hookCommand } from "./harness/claude/hooks.ts";
 import { runnerCommand } from "./runner/cli.ts";
 import { validateWithUses } from "./validate.ts";
 import { policyProblems } from "./landing/policy.ts";
+import { primaryCommand } from "./primary/cli.ts";
 import { upgradeCommand } from "./install/cli.ts";
 import { selfTestCommand } from "./install/selftest.ts";
 
@@ -24,6 +25,8 @@ commands:
   run        run one pass of a behavior tree on a ticket
   log        append to or show a ticket's decision log
   runner     start, stop or inspect the runner daemon
+  enqueue    hand a ticket to abt as one work type
+  reply      write a chat reply to an escalation on the ticket
   onboard    onboard a repo (not implemented)
   validate   validate a behavior-tree or merge-policy YAML file
   upgrade    install a tag under the abt folder and switch to it, or roll back
@@ -66,6 +69,8 @@ async function main(argv: string[]): Promise<number> {
   if (command === "hook") return hookCommand(rest[0], readFileSync(0, "utf8"), process.env, (s) => console.log(s));
 
   if (command === "runner") return runnerCommand(rest);
+
+  if (command === "enqueue" || command === "reply") return primaryCommand(command, rest);
 
   if (command === "upgrade") return upgradeCommand(rest);
 

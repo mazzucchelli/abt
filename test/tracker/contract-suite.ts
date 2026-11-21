@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import type { Tracker } from "../../src/tracker/contract.ts";
+import { REPLY_KIND, type Tracker } from "../../src/tracker/contract.ts";
 
 /**
  * One suite, run against every Tracker implementation so the fake cannot drift from reality.
@@ -98,6 +98,26 @@ export function contractSuite(name: string, make: () => Promise<Tracker> | Track
     await tracker.setRisk(id, "medium");
     t = await tracker.readTicket(id);
     assert.equal(t.risk, "medium");
+  });
+
+  t("enqueue marks an existing ticket for abt as one work type, replacing another and leaving the rest alone", async (tracker) => {
+    const { id } = await tracker.createTicket({ title: uniq(), body: "", workType: "research", risk: "medium" });
+    await tracker.enqueue(id, "implement");
+    const read = await tracker.readTicket(id);
+    assert.equal(read.abt, true);
+    assert.equal(read.workType, "implement");
+    assert.equal(read.risk, "medium");
+    assert.equal(read.state, "Todo");
+    assert.ok((await tracker.listByState("Todo")).some((x) => x.id === id));
+  });
+
+  t("postReply writes a plain comment that reads back as the writer's reply", async (tracker) => {
+    const { id, owner } = await tracker.createTicket({ title: uniq(), body: "" });
+    await tracker.postReply(id, "yes");
+    const [c] = (await tracker.readCommentsSince(id)).comments;
+    assert.equal(c!.kind, REPLY_KIND);
+    assert.equal(c!.body, "yes");
+    assert.equal(c!.author, owner);
   });
 
   t("readTicket on an unknown id rejects", async (tracker) => {
