@@ -1,5 +1,7 @@
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
+import { join } from "node:path";
 import { parse } from "yaml";
+import type { IsolationConfig } from "../workspace/env.ts";
 import {
   LIFECYCLE_STATES,
   RISK_TIERS,
@@ -36,9 +38,17 @@ export interface TrackerConfig {
 
 export interface AdapterConfig {
   tracker: TrackerConfig;
+  /** What each parallel worker must not share: ports, database, build output. */
+  isolation?: IsolationConfig;
 }
 
 export const ADAPTER_DOC_PATH = ".agents/abt/workflow.md";
+
+/** The `isolation` section of a project's adapter doc (`<project>/.agents/abt/workflow.md`); undefined when the doc or the section is absent. */
+export function loadIsolation(projectPath: string): IsolationConfig | undefined {
+  const file = join(projectPath, ADAPTER_DOC_PATH);
+  return existsSync(file) ? loadAdapterDoc(file).isolation : undefined;
+}
 
 export function loadAdapterDoc(path: string): AdapterConfig {
   return parseAdapterDoc(readFileSync(path, "utf8"));
@@ -55,7 +65,7 @@ export function parseAdapterDoc(source: string): AdapterConfig {
     throw new AdapterConfigError(`adapter doc front matter is not valid YAML: ${(e as Error).message.split("\n")[0]}`);
   }
   const root = object(raw, "front matter");
-  noExtra(root, ["tracker"], "front matter");
+  noExtra(root, ["tracker", "isolation"], "front matter");
   const t = object(root.tracker, "tracker");
   noExtra(t, ["kind", "team", "credentials", "states", "labels"], "tracker");
 
@@ -63,6 +73,7 @@ export function parseAdapterDoc(source: string): AdapterConfig {
     throw new AdapterConfigError(`unsupported tracker ${JSON.stringify(t.kind)} (supported: "linear")`);
   }
   return {
+    ...(root.isolation !== undefined && { isolation: isolation(root.isolation) }),
     tracker: {
       kind: "linear",
       team: text(t.team, "tracker.team"),
@@ -154,4 +165,20 @@ function labels(v: unknown): LabelConfig {
       RISK_TIERS.map((r) => [r, risk[r] === undefined ? `risk:${r}` : text(risk[r], `tracker.labels.risk.${r}`)]),
     ) as Record<RiskTier, string>,
   };
+}
+
+function isolation(v: unknown): IsolationConfig {
+  const o = object(v, "isolation");
+  noExtra(o, ["ports", "database", "buildDir"], "isolation");
+  const ports = o.ports === undefined ? {} : object(o.ports, "isolation.ports");
+  const out: IsolationConfig = { ports: {} };
+  for (const [name, p] of Object.entries(ports)) {
+    if (typeof p !== "number" || !Number.isInteger(p) || p < 1 || p > 65535) {
+      throw new AdapterConfigError(`isolation.ports.${name} must be a port number (1-65535)`);
+    }
+    out.ports[name] = p;
+  }
+  if (o.database !== undefined) out.database = text(o.database, "isolation.database");
+  if (o.buildDir !== undefined) out.buildDir = text(o.buildDir, "isolation.buildDir");
+  return out;
 }

@@ -361,3 +361,23 @@ test("land is a stub that leaves the PR open", async () => {
   const w = await world();
   assert.equal((await w.pass("action: land")).result, "open");
 });
+
+test("a worker gets its own isolated environment, different from another ticket's", async () => {
+  const { WorkerEnvs } = await import("../src/workspace/env.ts");
+  const envs = new WorkerEnvs(mkdtempSync(join(tmpdir(), "abt-env-")), { ports: { web: 3000 }, database: "db_{lane}" });
+  envs.allocate("OTHER-1", "/w/other");
+  const w = await world();
+  await w.claim();
+  w.harness.script("tdd-afk", { result: "ok" });
+  await runPass({ tree: "agent: tdd-afk", ticket: w.ticket, tracker: w.tracker, codeHost: w.codeHost, harness: w.harness, workspace: w.workspace, log: w.log, newId: () => "x", envs });
+  assert.deepEqual(w.harness.requests[0]!.env, { ABT_LANE: "1", ABT_PORT_WEB: "3001", ABT_DATABASE: "db_1" });
+});
+
+test("a worker sent back after a rebase conflict is told about the conflict", async () => {
+  const w = await world();
+  await w.claim();
+  w.log.append(w.ticket, { run: "r0", node: null, kind: "note", decision: "rebase conflict: sent back to the worker", why: "conflicts in a.txt", evidence: null, result: "fail", payload: { by: "runner", text: "conflicts in a.txt" } });
+  w.harness.script("tdd-afk", { result: "ok" });
+  await w.pass("agent: tdd-afk");
+  assert.match(w.harness.requests[0]!.prompt, /no longer rebases cleanly[\s\S]*conflicts in a\.txt/);
+});

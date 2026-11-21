@@ -15,6 +15,8 @@ import { routeWorker, type RoutingDeps } from "./routing.ts";
 import type { Ticket, Tracker } from "./tracker/contract.ts";
 import { branchName } from "./workspace/branch.ts";
 import type { Workspace } from "./workspace/contract.ts";
+import type { WorkerEnvs } from "./workspace/env.ts";
+import { openConflict } from "./upkeep.ts";
 
 /** What landing needs: the agreed merge policy and the hashes `runner-merge` records. Only a landing pass has one. */
 export interface LandingContext {
@@ -53,6 +55,8 @@ export interface PassDeps {
   routing?: RoutingDeps;
   /** Set only for the land tree, and only under an agreed policy. Without it no action merges. */
   landing?: LandingContext;
+  /** Gives each worker its own ports, database and build output. Without it workers get no extra environment. */
+  envs?: WorkerEnvs;
 }
 
 export interface PassResult {
@@ -411,7 +415,7 @@ class Pass {
     }
     const out = await harness.run({
       skill: node.name,
-      prompt: promptFor(t, this.#rejection(), this.#ownerAnswer()),
+      prompt: promptFor(t, this.#rejection(), this.#ownerAnswer(), openConflict(this.#d.log.read(ticket))?.why),
       worktree,
       model,
       effort,
@@ -420,6 +424,7 @@ class Pass {
       node: node.id,
       run: this.#run,
       ...(session && { session }),
+      ...(this.#d.envs && { env: this.#d.envs.allocate(ticket, worktree).vars }),
     });
     return { result: out.result, why: out.exitStatus === null ? out.why : `${out.why} (exit ${out.exitStatus})`, worker: out.sessionId, evidence: out.transcriptPath, ...(out.usageLimit && { usageLimit: out.usageLimit }) };
   }
@@ -531,9 +536,10 @@ const RESEARCH_BRIEF = `Research only: write no code and commit nothing.
 Put the findings in the project's docs home, never in repo files or on a branch, and cite primary sources.
 When done, link the findings on the ticket with the title "${FINDINGS_LINK}" and post a short summary as a comment of kind "gist".`;
 
-function promptFor(t: Ticket, rejected?: string, answered?: string): string {
+function promptFor(t: Ticket, rejected?: string, answered?: string, conflict?: string): string {
   const brief = t.workType === "research" ? RESEARCH_BRIEF : "";
   const redo = rejected ? `A reviewer rejected the previous findings: ${rejected}\nRevise them to address this.` : "";
   const answer = answered ? `The ticket owner answered your question: ${answered}` : "";
-  return [`${t.title}\n\n${t.body}`.trim(), brief, redo, answer].filter((p) => p !== "").join("\n\n");
+  const rebase = conflict ? `Another PR landed and this branch no longer rebases cleanly onto the default branch: ${conflict}.\nRebase the branch onto the default branch, resolve the conflict and keep the change working.` : "";
+  return [`${t.title}\n\n${t.body}`.trim(), brief, redo, answer, rebase].filter((p) => p !== "").join("\n\n");
 }

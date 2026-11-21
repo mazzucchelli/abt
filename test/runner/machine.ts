@@ -52,7 +52,7 @@ export function machine(trees: Record<string, string> = {}, extra: Partial<Runne
   };
   const ticket = async (title = "feat: add the thing", more: { priority?: number; blockedBy?: string[] } = {}) => (await tracker.createTicket({ title, body: "", ...more })).id;
   const state = async (id: string) => (await tracker.readTicket(id)).state;
-  return { home, clock, tracker, harness, workspace, workers, log, project, runner, ticket, state, alive, errors };
+  return { home, clock, tracker, codeHost, harness, workspace, workers, log, project, runner, ticket, state, alive, errors };
 }
 
 export async function until(cond: () => Promise<boolean>, ms = 1000): Promise<void> {

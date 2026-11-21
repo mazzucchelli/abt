@@ -8,6 +8,7 @@ import { ticketFacts } from "./runner/scheduler.ts";
 import { postAskPoint, resumeFromReplies } from "./escalation.ts";
 import { postSummary } from "./summary.ts";
 import type { Notifier } from "./notify/contract.ts";
+import type { Clock } from "./clock.ts";
 import { isScalar, parseDocument, visit } from "yaml";
 import { parseTree, TreeError } from "./tree.ts";
 import { LayeredTrees, resolveTree, type TreeStore } from "./trees.ts";
@@ -25,6 +26,8 @@ export interface TicketRunDeps extends Omit<PassDeps, "tree" | "run" | "file"> {
   risk?: Pick<RiskDeps, "classifier" | "map" | "timeoutMs" | "minConfidence" | "maxPatchChars">;
   /** The project's merge policy, read from its default branch. Without one abt never merges. */
   policy?: PolicyStore;
+  /** When given, a failed run's worktree is kept and stamped with this clock's time instead of removed; the runner's sweep removes it after its TTL. */
+  keepFailed?: Clock;
 }
 
 export interface TicketRunResult {
@@ -83,6 +86,8 @@ export async function runTicket(deps: TicketRunDeps): Promise<TicketRunResult> {
       throw e;
     }
   }
+  // The ticket is being worked (again): a worktree kept from a failed run is no longer on the clock.
+  await workspace.unkeep(ticket);
   const pass = (name: Name) => runPass({ ...deps, run, trees, tree: sources[name].source, file: sources[name].file });
 
   await assessOnce(deps, run);
@@ -106,9 +111,11 @@ export async function runTicket(deps: TicketRunDeps): Promise<TicketRunResult> {
   // A usage limit is the subscription's, not the worker's verdict: the ticket stays in progress and is requeued after the reset.
   if (impl.result === "error" && ticketFacts(log.read(ticket)).usageLimited) return { run, result: "running", terminal: false };
 
-  await sweep(deps, run, sources.cleanup);
-
   const succeeded = impl.result === "ok" || impl.result === "open";
+  // A failed run's worktree is evidence for the human: kept until its TTL, not swept now.
+  if (!succeeded && deps.keepFailed) await workspace.keep(ticket, deps.keepFailed.now());
+  else await sweep(deps, run, sources.cleanup);
+
   if (!succeeded) escalate(deps, run, failureReason(log.read(ticket), run, impl.result, "implement"), "a human to look at the failed run");
   await finish(deps, impl.result, succeeded ? undefined : "Needs you");
   return { run, result: impl.result, terminal: true };
@@ -240,11 +247,10 @@ async function sweep(deps: TicketRunDeps, run: string, tree?: { source: string; 
 /** The backstop under the cleanup tree: any scratch directory is removed, and a worktree left behind is removed and the override logged. */
 async function removeLeftovers(deps: TicketRunDeps, run: string): Promise<void> {
   const { workspace, log, ticket } = deps;
-  if ((await workspace.find(ticket)) === undefined) {
-    await workspace.remove(ticket);
-    return;
-  }
+  const left = (await workspace.find(ticket)) !== undefined;
   await workspace.remove(ticket);
+  deps.envs?.release(ticket);
+  if (!left) return;
   log.append(ticket, {
     run, node: null, kind: "override", decision: "runner removed the worktree", why: "the cleanup tree left it behind; cleanup on every terminal state is an invariant",
     evidence: null, result: "ok", payload: { target: "cleanup", by: "runner" },
@@ -272,6 +278,7 @@ async function refuse(deps: TicketRunDeps, run: string, tree: string, errors: st
   const reason = errors.join("; ");
   escalate(deps, run, reason, `the "${tree}" tree fixed on the default branch`);
   await deps.workspace.remove(deps.ticket);
+  deps.envs?.release(deps.ticket);
   await deps.tracker.postComment(deps.ticket, {
     kind: "tree-error",
     body: `The "${tree}" tree was refused:\n\n${errors.join("\n")}`,

@@ -10,6 +10,8 @@ import { InstallStore } from "../install/store.ts";
 import { loadLaunchProfile } from "../harness/claude/profile.ts";
 import { PrValidator } from "../pr-validation.ts";
 import { loadGlobalConfig } from "./config.ts";
+import { loadIsolation } from "../tracker/config.ts";
+import { WorkerEnvs } from "../workspace/env.ts";
 import { Runner, type RunnerProject } from "./daemon.ts";
 import { DispatchStore } from "./dispatch-store.ts";
 import { LaunchdAgent, systemLaunchctl } from "./launchd.ts";
@@ -97,7 +99,9 @@ async function runDaemon(home: string, flags: string[]): Promise<number> {
   if (worldFile) {
     const world = await loadFakeWorld(worldFile);
     const { tracker, codeHost, harness, workspace } = world;
-    projects = [{ name: "fake", tracker, log, prValidator: new PrValidator({ host: codeHost, plugin, onError: (e, where) => console.error(`abt runner: ${where}: ${(e as Error).message}`) }), ...(config.projects[0]?.maxWorkers && { maxWorkers: config.projects[0].maxWorkers }), deps: (ticket) => ({ ticket, tracker, codeHost, harness, workspace, log, newId, plugin, project: new MemoryTrees(".agents/abt/trees", {}) }) }];
+    // One WorkerEnvs serves both sides: workers allocate their lane from it and the runner's sweep frees it.
+    const envs = new WorkerEnvs(join(home, "lanes"), config.projects[0] ? loadIsolation(config.projects[0].path) : undefined);
+    projects = [{ name: "fake", tracker, log, workspace, envs, defaultBranch: "main", prValidator: new PrValidator({ host: codeHost, plugin, onError: (e, where) => console.error(`abt runner: ${where}: ${(e as Error).message}`) }), ...(config.projects[0]?.maxWorkers && { maxWorkers: config.projects[0].maxWorkers }), deps: (ticket) => ({ ticket, tracker, codeHost, harness, workspace, envs, log, newId, plugin, project: new MemoryTrees(".agents/abt/trees", {}) }) }];
   } else {
     // Real code host and harness adapters are not built yet, so a listed project cannot be served.
     // Say so and keep running (launchd would only restart a daemon that exits), heartbeat and all.

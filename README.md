@@ -30,6 +30,23 @@ Scheduling protects the shared subscription window. At most 3 workers run at onc
 
 Dispatch state is private and disposable. On start the runner clears it, kills orphan workers (processes carrying `--abt-ticket=<id>`) and re-runs their tickets from the tracker and the decision log; the dead worker is logged as an `error`, which uses no retry. Real code host and harness adapters are not built yet, so `abt runner run --world <world.json>` runs the daemon against a fake world.
 
+## Parallel upkeep
+
+Parallel workers stay isolated and landable.
+
+- **Isolation.** Each worker's worktree gets its own isolation lane (the lowest free number among live worktrees; not a worker slot), and from it its own ports, database and build output, passed to the worker as `ABT_LANE`, `ABT_PORT_<NAME>`, `ABT_DATABASE` and `ABT_BUILD_DIR`. The adapter doc's front matter says how:
+
+  ```yaml
+  isolation:
+    ports: { web: 3000, api: 4000 }   # base ports; a worker's port is the base plus its lane
+    database: "app_{ticket}"          # {ticket} and {lane} are filled in
+    buildDir: ".abt-build/{ticket}"   # relative to the worktree
+  ```
+
+- **Branch updates.** After a landing (a ticket reaching Done with code merged), the runner rebases every other open worker branch (In progress or In review) onto the new default branch in its worktree (`git fetch`, `git rebase origin/<default>`) and pushes it with `git push --force-with-lease`. A conflicted rebase is aborted and the ticket goes back to its worker with the conflict logged and posted; if the worker ends without resolving it, the ticket goes to Needs you. A branch whose worker is running, or whose worktree has uncommitted work, is left alone. The runner never merges into the default branch locally: landing goes only through the code host. Needs a project's `workspace` and `defaultBranch`.
+- **Worktree hygiene.** A worktree is removed on every terminal state. A failed run's worktree is kept for 7 days (`worktreeTtlMs`) so the human can look at it. When the runner starts, and on each scan, orphan worktrees (ticket Done, Abandoned, Todo or unknown) and expired failed-run worktrees are removed. A worktree with uncommitted work is never deleted: it is reported on the console and as a ticket comment, once per runner run. A tracker that cannot be read sweeps nothing.
+- The human's interactive sessions stay in the main checkout, which the runner never touches: every runner write happens in a worker worktree under the worktrees folder.
+
 ## Pinned install and `abt upgrade`
 
 Edits in progress never affect live runs. Workers, the daemon and interactive sessions load a pinned install under the abt folder: one install per tag in `$ABT_HOME/installs/<tag>/` and a `current` pointer. `bin/abt` hands over to `current` when one exists (set `ABT_UNPINNED=1` to run the checkout instead), and `abt runner start` points launchd at it.

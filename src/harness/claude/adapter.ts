@@ -46,6 +46,7 @@ export class ClaudeCodeAdapter implements HarnessAdapter {
         kind: "worker", profile, token, hostEnv: this.#d.hostEnv, settingsPath, sessionId, cwd: req.worktree,
         skill: req.skill, prompt: req.prompt, model: req.model, effort: req.effort, feedback: req.feedback.commands,
         ticket: req.ticket, node: req.node, run: req.run ?? sessionId, defaultBranch: req.defaultBranch ?? "main", stateFile,
+        ...(req.env && { workerEnv: req.env }),
         ...(req.session && { resume: req.session }),
       });
     } catch (e) {

@@ -17,6 +17,8 @@ export interface WorkerRequest {
   node: string;
   /** The pass this worker was dispatched in; its hooks stamp their decision records with it. */
   run?: string;
+  /** Per-worker environment from the adapter doc: its own ports, database and build output, so parallel workers never collide. */
+  env?: Record<string, string>;
   /** The branch a worker must never write to. `main` when absent. */
   defaultBranch?: string;
   /** Set when the decision log says a worker for this node was still running: poll it, don't dispatch. */

@@ -234,3 +234,21 @@ test("with risk assessment wired in, intake assesses the ticket, labels it and l
   const summary = (await w.tracker.readCommentsSince(t.id)).comments.find((c) => c.kind === "summary")!;
   assert.equal(summary.data!.tier, "medium");
 });
+
+test("with keepFailed, a failed run's worktree is kept and stamped instead of removed", async () => {
+  const w = await world();
+  const clock = new FakeClock();
+  w.harness.script("tdd-afk", { result: "fail", why: "tests never went green" });
+  let r = await runTicket({ ...w.deps(), keepFailed: clock });
+  for (let i = 0; i < 9 && !r.terminal; i++) r = await runTicket({ ...w.deps(), keepFailed: clock });
+  assert.equal(await w.state(), "Needs you");
+  const [kept] = await w.workspace.list();
+  assert.equal(kept!.ticket, w.id);
+  assert.equal(kept!.keptSince?.toISOString(), clock.now().toISOString());
+});
+
+test("a successful run still removes its worktree even with keepFailed", async () => {
+  const w = await world();
+  await runTicket({ ...w.deps(), keepFailed: new FakeClock() });
+  assert.equal(await w.workspace.find(w.id), undefined);
+});
