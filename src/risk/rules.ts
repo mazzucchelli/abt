@@ -8,6 +8,12 @@ export interface RiskRule {
 }
 
 /** The project's risk map: extra rules and the size thresholds. Part of the merge policy. */
+/** An explicit pairing: files matching `glob` are covered by these checks. */
+export interface PairingOverride {
+  glob: string;
+  checks: string[];
+}
+
 export interface RiskMap {
   rules: RiskRule[];
   /** Added plus removed lines above which a diff is at least medium. */
@@ -15,7 +21,7 @@ export interface RiskMap {
   /** Changed files above which a diff is at least medium. */
   maxFiles: number;
   /** Explicit pairings of modules to the checks that cover them, beyond the naming convention. */
-  pairing: { glob: string; checks: string[] }[];
+  pairing: PairingOverride[];
 }
 
 export const DEFAULT_MAX_LINES = 400;
@@ -55,7 +61,7 @@ export const FIXED_RULES: RiskRule[] = [
 ];
 
 function MANIFEST_RULES(): RiskRule[] {
-  return MANIFESTS.map((m) => ({ glob: `**/${m}`, tier: "medium" as RiskTier, reason: "dependency manifest" }));
+  return [...MANIFESTS.map((m) => `**/${m}`), "**/requirements*.txt"].map((glob) => ({ glob, tier: "medium" as RiskTier, reason: "dependency manifest" }));
 }
 
 /** The fixed reason a path is never low, or undefined. */
@@ -99,6 +105,8 @@ export interface FloorInput {
   scope?: string[];
   /** Touched surfaces with no covered check, or missing required evidence. */
   evidenceGaps?: string[];
+  /** Fixed floors the verification contract found: each is at least medium, whatever the project agrees. */
+  fixedFloors?: { path: string; reason: string }[];
   /** At intake there is no diff: files are only paths the ticket names, so whole-change rules are skipped. */
   intake?: boolean;
 }
@@ -274,6 +282,7 @@ export function computeFloor(input: FloorInput, map: RiskMap = defaultRiskMap())
     if (lines > map.maxLines) hits.push({ path: null, tier: "medium", reason: `${lines} changed lines (over ${map.maxLines})` });
     if (input.files.length > map.maxFiles) hits.push({ path: null, tier: "medium", reason: `${input.files.length} changed files (over ${map.maxFiles})` });
   }
+  for (const f of input.fixedFloors ?? []) hits.push({ path: f.path === "(visual diff)" ? null : f.path, tier: "medium", reason: `${f.reason} is never low` });
   for (const gap of input.evidenceGaps ?? []) hits.push({ path: null, tier: "medium", reason: `evidence gap: ${gap}` });
   return { floor: maxTier(...hits.map((h) => h.tier)), hits };
 }

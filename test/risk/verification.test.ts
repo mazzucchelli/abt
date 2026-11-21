@@ -74,10 +74,20 @@ land_tree_hash: ${"a".repeat(64)}
 test("a merge policy that loosens a fixed rule fails validation; tightening passes", () => {
   assert.deepEqual(policyProblems(policy("[]")), []);
   assert.deepEqual(policyProblems(policy('[{ glob: "src/billing/**", tier: high, reason: "money" }]')), []);
-  for (const glob of ["package-lock.json", "**/package.json", ".github/workflows/*.yml", "db/migrations/**", "tsconfig.json"]) {
+  assert.deepEqual(policyProblems(policy('[{ glob: "db/migrations/**", tier: medium, reason: "careful" }, { glob: "**", tier: medium, reason: "all" }]')), []);
+  for (const glob of ["package-lock.json", "**/package.json", ".github/workflows/*.yml", "db/migrations/**", "tsconfig.json", "src/**", "apps/web/**", "**"]) {
     const problems = policyProblems(policy(`[{ glob: "${glob}", tier: low, reason: "fine" }]`));
     assert.ok(problems.some((p) => p.includes("loosen")), `${glob}: ${problems.join("; ")}`);
   }
+});
+
+test("touching one more uncovered file later does not refile the first gap", async () => {
+  const w = await world();
+  await w.assess([{ path: "src/vat.ts", status: "modified" }]);
+  await w.assess([{ path: "src/vat.ts", status: "modified" }, { path: "src/fee.ts", status: "modified" }]);
+  const boot = (await w.tracker.listByState("Todo")).filter((t) => t.workType === "bootstrap");
+  assert.equal(boot.length, 2);
+  assert.doesNotMatch(boot[1]!.body, /src\/vat\.ts/);
 });
 
 test("the PR summary links the evidence and the log holds only pointers", async () => {

@@ -151,10 +151,9 @@ export async function assessTicket(deps: RiskDeps, req: AssessRequest): Promise<
   const evidenceGaps = [
     ...(req.evidenceGaps ?? []),
     ...(coverage?.gaps.map((g) => `${g.path ?? "change"}: ${g.reason}`) ?? []),
-    ...(coverage?.fixed.filter((f) => f.reason === "visual diff").map((f) => f.reason) ?? []),
   ];
   const { hits, floor: ruleFloor } = computeFloor(
-    { ...diff, ...(req.scope && { scope: req.scope }), ...(evidenceGaps.length > 0 && { evidenceGaps }), intake },
+    { ...diff, ...(req.scope && { scope: req.scope }), ...(evidenceGaps.length > 0 && { evidenceGaps }), ...(coverage && { fixedFloors: coverage.fixed }), intake },
     map,
   );
   const limit = deps.maxPatchChars ?? DEFAULT_MAX_PATCH_CHARS;

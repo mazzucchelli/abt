@@ -1,4 +1,6 @@
-import { fixedReason, matches } from "./rules.ts";
+import { fixedReason, matches, type PairingOverride } from "./rules.ts";
+
+export type { PairingOverride };
 
 /**
  * The verification contract: a change is "verified" when a check already committed on the default
@@ -11,12 +13,6 @@ export interface ChangedFile {
   status: "added" | "modified" | "deleted" | "renamed";
   /** The old path, for a rename. */
   from?: string;
-}
-
-/** An explicit pairing the risk map adds: files matching `glob` are covered by these checks. */
-export interface PairingOverride {
-  glob: string;
-  checks: string[];
 }
 
 export interface CoverageInput {
@@ -34,7 +30,7 @@ export interface CoverageInput {
   visualDiff?: boolean;
 }
 
-export type Surface = "docs" | "ui" | "backend" | "fixed" | "baseline" | "test";
+export type Surface = "docs" | "ui" | "backend" | "other" | "fixed" | "baseline" | "test";
 
 /** A touched surface with no covered check, or a required piece of evidence that is missing. */
 export interface CoverageGap {
@@ -60,6 +56,7 @@ const isE2e = (p: string) => /(^|\/)e2e\//.test(p) || /\.e2e\.[\w]+$/.test(p);
 const isTest = (p: string) => isE2e(p) || /\.(test|spec)\.\w+$/.test(p) || /(^|\/)(tests?|__tests__)\//.test(p);
 const isBaseline = (p: string) => /(^|\/)__(image_)?snapshots__\//.test(p) || /\.snap$/.test(p) || /-snapshots\//.test(p) || /(^|\/)baselines\//.test(p);
 const isDocs = (p: string) => /\.(md|mdx|txt|rst)$/.test(p) || /^docs\//.test(p);
+const isCode = (p: string) => /\.(ts|mts|cts|js|mjs|cjs|py|go|rs|java|kt|rb|php|cs|swift|c|cc|cpp|h|hpp|sql|sh)$/.test(p);
 const isUi = (p: string) => /\.(tsx|jsx|vue|svelte|css|scss|html)$/.test(p);
 
 export function surfaceOf(path: string): Surface {
@@ -68,7 +65,7 @@ export function surfaceOf(path: string): Surface {
   if (fixedReason(path)) return "fixed";
   if (isDocs(path)) return "docs";
   if (isUi(path)) return "ui";
-  return "backend";
+  return isCode(path) ? "backend" : "other";
 }
 
 /** The sibling-test naming convention: `x.test.*` or `x.spec.*` beside the file, in `__tests__`, or mirrored under `test/` or `tests/`. */
@@ -85,13 +82,13 @@ function isSiblingTest(test: string, source: string): boolean {
 /** The route a UI file renders: its path under app, pages, routes or components, without page, index or layout. */
 export function routeOf(path: string): string {
   const parts = path.replace(/\.[^.]+$/, "").split("/");
-  const at = parts.findIndex((p) => ["app", "pages", "routes", "components"].includes(p));
-  const rest = parts.slice(at + 1).filter((p) => !["page", "index", "layout"].includes(p));
+  const at = parts.findIndex((p) => ["app", "pages", "routes"].includes(p));
+  const rest = parts.slice(at + 1).filter((p) => !["page", "index", "layout"].includes(p) && !/^\(.*\)$/.test(p) && !/^\[.*\]$/.test(p));
   return rest.join("/") || "index";
 }
 
 function coversRoute(spec: string, route: string): boolean {
-  const key = spec.replace(/^.*?e2e\//, "").replace(/\.(spec|e2e)\.\w+$/, "").replace(/\.\w+$/, "");
+  const key = spec.replace(/^.*?(?:e2e|tests?)\//, "").replace(/\.(spec|test|e2e)\.\w+$/, "").replace(/\.\w+$/, "");
   return key === route || key.startsWith(`${route}/`);
 }
 
@@ -134,6 +131,7 @@ export function assessCoverage(input: CoverageInput): Coverage {
     if (surface === "fixed") fixed.push({ path: f.path, reason: fixedReason(f.path)! });
     else if (surface === "baseline") fixed.push({ path: f.path, reason: "baseline update" });
     else if (surface === "docs") sawDocs = true;
+    else if (surface === "other") gaps.push({ path: f.path, surface, reason: "no check covers this file type", needsBootstrap: false });
     else if (surface === "backend" || surface === "ui") {
       if (f.status === "deleted") continue;
       if (surface === "backend") sawBackend = true;

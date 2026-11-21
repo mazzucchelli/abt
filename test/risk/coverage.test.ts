@@ -78,3 +78,19 @@ test("a baseline update or visual diff is never low", () => {
   assert.equal(assessCoverage(input([mod("README.md"), mod("e2e/cart.spec.ts-snapshots/cart.png")])).lowEligible, false);
   assert.equal(assessCoverage(input([mod("README.md")], { visualDiff: true })).lowEligible, false);
 });
+
+test("UI routes ignore route groups and dynamic segments, and e2e specs may be named .test", () => {
+  const files = [mod("app/(shop)/cart/[id]/page.tsx")];
+  assert.equal(assessCoverage(input(files)).lowEligible, true);
+  assert.equal(assessCoverage(input(files, { main: ["e2e/cart.test.ts"], requiredRuns: ["e2e/**/*.test.ts"] })).lowEligible, true);
+});
+
+test("a file type no check covers is a gap but files no bootstrap ticket", () => {
+  const c = assessCoverage(input([mod("data/rates.json")]));
+  assert.equal(c.lowEligible, false);
+  assert.equal(c.gaps[0]!.needsBootstrap, false);
+});
+
+test("requirements.txt is a fixed dependency file", () => {
+  assert.equal(assessCoverage(input([mod("requirements-dev.txt")])).lowEligible, false);
+});
