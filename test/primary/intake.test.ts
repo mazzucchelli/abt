@@ -11,10 +11,10 @@ const inferredComments = async (tracker: InMemoryTracker, id: string) =>
 test("an explicit command type beats the entry point's type and the inferred one, and writes no inferred marker", async () => {
   const w = world();
   const { id } = await w.tracker.createTicket({ title: "Dig", body: "" });
-  const r = await enqueueTicket(w.deps, { ticket: id, workType: "spike", entryType: "research", inferred: { workType: "implement" } });
+  const r = await enqueueTicket(w.deps, { ticket: id, workType: "research", entryType: "implement", inferred: { workType: "implement" } });
   assert.equal(r.outcome, "queued");
-  assert.equal(r.reply, `Queued ${id} as spike: https://fake.tracker/${id}`);
-  assert.equal((await w.tracker.readTicket(id)).workType, "spike");
+  assert.equal(r.reply, `Queued ${id} as research: https://fake.tracker/${id}`);
+  assert.equal((await w.tracker.readTicket(id)).workType, "research");
   assert.deepEqual(await inferredComments(w.tracker, id), []);
 });
 
@@ -60,11 +60,12 @@ test("bootstrap is never inferred: the ticket is not typed and the reply says to
   assert.deepEqual(w.nudges, []);
 });
 
-test("an explicit bootstrap is still honoured", async () => {
+test("an explicit bootstrap is refused until its tree ships", async () => {
   const w = world();
   const { id } = await w.tracker.createTicket({ title: "Add tests", body: "" });
   const r = await enqueueTicket(w.deps, { ticket: id, workType: "bootstrap" });
-  assert.equal(r.outcome, "queued");
+  assert.equal(r.outcome, "refused");
+  assert.match(r.reply, /ABT-14/);
 });
 
 test("inferring implement for work that looks exploratory asks first and writes nothing", async () => {
@@ -105,10 +106,10 @@ test("a guessed label that a human has since changed is explicit again, and the 
   const w = world();
   const { id } = await w.tracker.createTicket({ title: "x", body: "" });
   await enqueueTicket(w.deps, { ticket: id, inferred: { workType: "implement" } });
-  await w.tracker.enqueue(id, "spike");
-  const r = await enqueueTicket(w.deps, { ticket: id, entryType: "research" });
+  await w.tracker.enqueue(id, "research");
+  const r = await enqueueTicket(w.deps, { ticket: id, entryType: "implement" });
   assert.equal(r.outcome, "queued");
-  assert.equal((await w.tracker.readTicket(id)).workType, "spike");
+  assert.equal((await w.tracker.readTicket(id)).workType, "research");
 });
 
 test("enqueueing an inferred ticket again without anything stronger keeps the guess and says it is inferred", async () => {

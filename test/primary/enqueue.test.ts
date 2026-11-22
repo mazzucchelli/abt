@@ -85,7 +85,7 @@ test("nothing else is refused: a pr-only policy and a ticket already past Todo s
   const prOnly = new MemoryPolicy(readFileSync(new URL("../../docs/examples/merge-policy.yaml", import.meta.url), "utf8").replace(/mode: \S+/, "mode: pr-only"));
   const w = await world({ policy: prOnly });
   await w.tracker.setState(w.id, "Done");
-  const r = await enqueueTicket(w.deps, { ticket: w.id, workType: "spike" });
+  const r = await enqueueTicket(w.deps, { ticket: w.id, workType: "research" });
   assert.equal(r.outcome, "queued");
 });
 
