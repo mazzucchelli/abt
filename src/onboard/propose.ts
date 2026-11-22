@@ -1,5 +1,6 @@
 import { parse, stringify } from "yaml";
 import { policyProblems } from "../landing/policy.ts";
+import { snapshotFacts } from "../landing/drift.ts";
 import { assessCoverage } from "../risk/coverage.ts";
 import { DEFAULT_MAX_FILES, DEFAULT_MAX_LINES, DEFAULT_RULES, matches } from "../risk/rules.ts";
 import type { MergePolicy } from "../landing/policy.ts";
@@ -79,7 +80,8 @@ function findGaps(files: string[]): Gap[] {
 }
 
 export function draftPolicy(f: ProjectFacts, preset: ResolvedPreset, capturedAt: string): DraftPolicy {
-  const facts = { default_branch: f.default_branch, captured_at: capturedAt };
+  // The snapshot the runner re-probes before every merge: the cheap facts, not only the branch name.
+  const facts = { ...snapshotFacts(f), default_branch: f.default_branch, captured_at: capturedAt };
   const riskMap = { rules: [], pairing: [], max_lines: DEFAULT_MAX_LINES, max_files: DEFAULT_MAX_FILES };
   if (preset === "solo-self") {
     return {

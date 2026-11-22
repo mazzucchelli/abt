@@ -10,6 +10,7 @@ export const RECORD_KINDS = [
   "retype",
   "escalation",
   "merge",
+  "probe",
   "pivot",
   "blocked",
   "note",

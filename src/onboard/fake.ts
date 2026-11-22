@@ -11,6 +11,10 @@ export class FakeProbe implements FactsProbe {
   async facts() {
     return structuredClone(this.#facts);
   }
+  /** Someone changing the project on the code host: these facts now read differently. */
+  change(patch: Partial<ProjectFacts>): void {
+    Object.assign(this.#facts, patch);
+  }
   async files() {
     return [...this.#files];
   }
