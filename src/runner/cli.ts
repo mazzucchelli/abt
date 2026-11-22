@@ -8,6 +8,11 @@ import { DecisionLog, abtHome } from "../log/store.ts";
 import { DirTrees, MemoryTrees } from "../trees.ts";
 import { InstallStore } from "../install/store.ts";
 import { loadLaunchProfile } from "../harness/claude/profile.ts";
+import { selfTestGate } from "../harness/claude/selftest.ts";
+import { systemSpawner } from "../harness/claude/spawn.ts";
+import { resolveCredential } from "../tracker/credentials.ts";
+import { mkdtempSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { PrValidator } from "../pr-validation.ts";
 import { loadGlobalConfig } from "./config.ts";
 import { loadIsolation } from "../tracker/config.ts";
@@ -57,6 +62,7 @@ export async function runnerCommand(args: string[]): Promise<number> {
       const s = runnerStatus({ dir: home, clock: systemClock, isAlive: processAlive });
       const beat = s.heartbeatAgeMs === undefined ? "no heartbeat" : `heartbeat ${Math.round(s.heartbeatAgeMs / 1000)}s ago`;
       console.log(s.state === "stopped" ? "runner stopped" : `runner ${s.state} (pid ${s.pid}, ${beat})`);
+      if (s.refused !== undefined) console.log(`dispatch refused: ${s.refused}`);
       return s.state === "running" ? 0 : 3;
     }
     case "nudge": {
@@ -110,9 +116,13 @@ async function runDaemon(home: string, flags: string[]): Promise<number> {
     }
     projects = [];
   }
+  // The startup self-test against the real Claude Code gates dispatch; the fake world has no Claude to test.
+  const ready = worldFile ? undefined : startupSelfTest();
+  // The real harness adapter, once wired here, is built with `claudeSubscriptionAdapter(profile, env, workers.tracking(systemSpawner))` so a worker's end starts a pass.
+  const workers = new ProcessWorkers();
   const runner = new Runner({
     home, clock: systemClock, timers: systemTimers, pid: process.pid, isAlive: processAlive, projects,
-    scheduling: config.scheduling, retention: new TranscriptRetention({ runsDir: loadLaunchProfile({ home: homedir(), pluginDir: fileURLToPath(new URL("../..", import.meta.url)) }).runsDir, clock: systemClock }), workers: new ProcessWorkers(), newId, store: new DispatchStore(join(home, "dispatch.json")), socketPath: join(home, "runner.sock"),
+    scheduling: config.scheduling, retention: new TranscriptRetention({ runsDir: loadLaunchProfile({ home: homedir(), pluginDir: fileURLToPath(new URL("../..", import.meta.url)) }).runsDir, clock: systemClock }), workers, ...(ready && { ready }), newId, store: new DispatchStore(join(home, "dispatch.json")), socketPath: join(home, "runner.sock"),
   });
   try {
     await runner.start();
@@ -129,4 +139,20 @@ async function runDaemon(home: string, flags: string[]): Promise<number> {
   });
   await runner.stop();
   return 0;
+}
+
+/** The self-test of this install, as the daemon's dispatch gate: a pass is remembered, a failure is retried on the next poll. */
+function startupSelfTest(): () => Promise<void> {
+  let gate: (() => Promise<void>) | undefined;
+  // Built on first use, so a missing profile is a refusal to dispatch, not a crash of the daemon.
+  return async () => {
+    if (!gate) {
+      const profile = loadLaunchProfile({ home: homedir(), pluginDir: fileURLToPath(new URL("../..", import.meta.url)) });
+      gate = selfTestGate(
+        { profile, spawn: systemSpawner, hostEnv: process.env, workDir: mkdtempSync(join(tmpdir(), "abt-selftest-")) },
+        () => resolveCredential({ keychain: profile.keychainItem }),
+      );
+    }
+    await gate();
+  };
 }

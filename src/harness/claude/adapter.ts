@@ -92,8 +92,8 @@ export function keychainToken(item: string, keychain: (item: string) => string |
 }
 
 /** The production adapter for the claude-subscription profile: real processes, Keychain token, self-test before any dispatch. */
-export function claudeSubscriptionAdapter(profile: ClaudeSubscriptionProfile, hostEnv: Record<string, string | undefined> = process.env): ClaudeCodeAdapter {
+export function claudeSubscriptionAdapter(profile: ClaudeSubscriptionProfile, hostEnv: Record<string, string | undefined> = process.env, spawn: Spawner = systemSpawner): ClaudeCodeAdapter {
   const readToken = () => keychainToken(profile.keychainItem);
   const ready = selfTestGate({ profile, spawn: systemSpawner, hostEnv, workDir: join(tmpdir(), "abt-selftest") }, readToken);
-  return new ClaudeCodeAdapter({ profile, spawn: systemSpawner, readToken, hostEnv, ready });
+  return new ClaudeCodeAdapter({ profile, spawn, readToken, hostEnv, ready });
 }

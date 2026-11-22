@@ -72,6 +72,13 @@ export interface RunnerDeps {
   retention?: TranscriptRetention;
   /** Where the nudge socket listens. Omit for no socket. */
   socketPath?: string;
+  /**
+   * The startup self-test: resolves when workers may be dispatched, rejects with the reason when not.
+   * It runs before any dispatch and again on each poll and scan while it fails. A failure is logged and
+   * shown by `abt runner status`; the runner keeps its heartbeat and starts no pass (a pass may run a worker), so no
+   * worker is dispatched until it passes. Omit for no gate.
+   */
+  ready?: () => Promise<void>;
   onError?: (error: unknown, where: string) => void;
 }
 
@@ -99,6 +106,8 @@ export class Runner {
   readonly #cooling = new Set<string>();
   /** Dirty orphan worktrees already reported to the human in this run. */
   readonly #reported = new Set<string>();
+  /** Why dispatch is refused right now; undefined when the self-test passes (or there is none). */
+  #refused: string | undefined;
   #ticks: Promise<void> = Promise.resolve();
   #stops: (() => void)[] = [];
   #server: Server | undefined;
@@ -113,9 +122,11 @@ export class Runner {
     this.#lock.acquire();
     try {
       this.#lock.heartbeat();
+      this.#lock.refuse(undefined); // a refusal left by a crashed run says nothing about this one
       this.#d.store.clear();
       await this.#recover();
       await this.#sweepWorktrees();
+      await this.#selfTest();
       this.#stops.push(this.#d.workers.onExit((ticket) => this.#track(this.nudge(ticket).then(() => undefined), "worker exit")));
       this.#stops.push(this.#d.timers.every(HEARTBEAT_MS, () => this.#lock.heartbeat()));
       this.#stops.push(this.#d.timers.every(POLL_MS, () => this.#track(this.#poll(), "poll")));
@@ -228,7 +239,10 @@ export class Runner {
    * tickets in dispatch order. Waiting tickets (CI, an approval) are only re-run on a poll.
    */
   async #dispatch(mode: Tick): Promise<void> {
-    if (mode !== "event") this.#cooling.clear();
+    if (mode !== "event") {
+      this.#cooling.clear();
+      await this.#selfTest();
+    }
     const now = this.#d.clock.now();
     const held = new Map<string, string>();
     // Usage-limit pauses are read from the log every round, so a restart keeps honouring them.
@@ -295,6 +309,8 @@ export class Runner {
     const profileOf = (c: Candidate) => this.#d.projects.find((p) => p.name === c.project)?.profile ?? "default";
     const open = cands.filter((c) => (pausedUntil.get(profileOf(c)) ?? 0) <= now.getTime());
     const projectCaps = Object.fromEntries(this.#d.projects.map((p) => [p.name, p.maxWorkers]));
+    // Nothing is admitted while refused; leaving it out also keeps refused tickets from being marked admitted.
+    if (this.#refused !== undefined) return;
     const go = admit(orderCandidates(open), { held: [...held.values()], globalCap: this.#d.scheduling?.globalCap ?? DEFAULT_GLOBAL_CAP, projectCaps });
     for (const c of go) {
       const w = where.get(c.key)!;
@@ -417,7 +433,21 @@ export class Runner {
     }
   }
 
+  /** Runs the startup self-test; while it fails no pass starts, since any pass may dispatch a worker. A failure is reported on every run. */
+  async #selfTest(): Promise<void> {
+    if (!this.#d.ready) return;
+    try {
+      await this.#d.ready();
+      this.#refused = undefined;
+    } catch (e) {
+      this.#refused = (e as Error).message ?? String(e);
+      this.#error(e, "startup self-test; dispatch refused");
+    }
+    this.#lock.refuse(this.#refused);
+  }
+
   #trigger(project: RunnerProject, ticket: string, force: boolean): void {
+    if (this.#refused !== undefined) return;
     const key = `${project.name}:${ticket}`;
     const running = this.#inflight.get(key);
     if (running) {

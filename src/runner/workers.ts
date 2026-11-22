@@ -1,4 +1,5 @@
 import { execFile } from "node:child_process";
+import type { Spawner } from "../harness/claude/spawn.ts";
 
 /** A worker process the runner can see on the machine. */
 export interface WorkerProcess {
@@ -50,7 +51,22 @@ export class ProcessWorkers implements Workers {
     return () => void this.#exit.delete(cb);
   }
 
-  /** For the harness adapter that spawns workers to call when one ends. */
+  /**
+   * A spawner that reports each worker's end: when the process a `Spawner` ran for a ticket (`ABT_TICKET` in its
+   * environment) ends, however it ended, `exited` is called, so the runner starts a pass for that ticket at once.
+   */
+  tracking(spawn: Spawner): Spawner {
+    return async (spec) => {
+      const ticket = spec.env.ABT_TICKET;
+      try {
+        return await spawn(spec);
+      } finally {
+        if (ticket) this.exited(ticket);
+      }
+    };
+  }
+
+  /** Called when a worker ends; `tracking` does it for every worker the harness adapter spawns. */
   exited(ticket: string): void {
     for (const cb of this.#exit) cb(ticket);
   }
