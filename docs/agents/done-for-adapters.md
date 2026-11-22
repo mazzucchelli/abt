@@ -25,4 +25,4 @@ The capability counts as delivered only when the second ticket is Done.
 
 ## Main stays green
 
-Two PRs that are each green can make `main` red once both merge. `main` should require up-to-date branches (branch protection) or use a merge queue. This is tracked as its own ticket, not part of this rule.
+Two PRs that are each green can make `main` red once both merge. The `protect-main` ruleset prevents this: it requires a PR and an up-to-date branch with the `can-merge` check (which aggregates test, build and typecheck). A project that adopts abt needs the same, or a merge queue.
