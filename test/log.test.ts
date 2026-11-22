@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { mkdtempSync, readFileSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { validateRecord } from "../src/log/record.ts";
@@ -127,8 +127,8 @@ test("a worker may append ask-point, pivot and blocked records only", () => {
     });
   };
   const ask = nodeOutcome({
-    kind: "ask-point", decision: "which db", result: "ok",
-    payload: { question: "q", recommended: "r", reversible: true, handling: "decided" },
+    kind: "ask-point", decision: "which db", result: "open",
+    payload: { question: "q", recommended: "r", reversible: true },
   });
   assert.equal(worker(["log", "append", "T-1"], ask).status, 0);
   const pivot = nodeOutcome({ kind: "pivot", decision: "switch", result: "ok", payload: { from: "a", to: "b", trigger: "t" } });
@@ -143,6 +143,33 @@ test("a worker may append ask-point, pivot and blocked records only", () => {
   assert.equal(other.status, 1);
   assert.match(other.stderr, /T-1/);
   assert.equal(abt(["log", "append", "T-3"], nodeOutcome()).status, 0, "without the worker role any kind is accepted");
+});
+
+test("a worker cannot settle its own ask-point: handling or a non-open result is refused", () => {
+  const { file } = setup();
+  const worker = (input: unknown) => {
+    const home = file("X").replace(/\/log\/X\.jsonl$/, "");
+    return spawnSync("bin/abt", ["log", "append", "T-1"], {
+      encoding: "utf8",
+      input: JSON.stringify(input),
+      env: { ...process.env, ABT_HOME: home, ABT_ROLE: "worker", ABT_TICKET: "T-1" },
+    });
+  };
+  const payload = { question: "q", recommended: "r", reversible: true };
+  for (const handling of ["decided", "escalated"]) {
+    const r = worker(nodeOutcome({ kind: "ask-point", decision: "d", result: "open", payload: { ...payload, handling } }));
+    assert.equal(r.status, 1);
+    assert.match(r.stderr, /handling/);
+  }
+  const raises = worker(nodeOutcome({ kind: "ask-point", decision: "d", result: "open", payload: { ...payload, raisesTo: "low" } }));
+  assert.equal(raises.status, 1, "raisesTo is not a worker-settable field until ABT-84 adds it to the schema");
+  const settled = worker(nodeOutcome({ kind: "ask-point", decision: "d", result: "ok", payload }));
+  assert.equal(settled.status, 1);
+  assert.match(settled.stderr, /open/);
+  const { result: _omitted, ...noResult } = nodeOutcome({ kind: "ask-point", decision: "d", payload }) as Record<string, unknown>;
+  assert.equal(worker(noResult).status, 1, "a missing result is not open");
+  assert.equal(worker(nodeOutcome({ kind: "ask-point", decision: "d", result: "open", payload: null })).status, 1);
+  assert.equal(existsSync(file("T-1")), false, "nothing was written");
 });
 
 test("a worker marks its ticket blocked with abt log append", () => {

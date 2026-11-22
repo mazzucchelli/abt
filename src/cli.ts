@@ -90,13 +90,22 @@ async function main(argv: string[]): Promise<number> {
   return 2;
 }
 
-/** A worker (ABT_ROLE=worker) may write only its own ticket's ask-point, pivot and blocked records. */
+/**
+ * A worker (ABT_ROLE=worker) may write only its own ticket's ask-point, pivot and blocked records.
+ * An ask-point it raises is open and carries no `handling`: only the runner settles one, so the PR's
+ * "decided" section can't be fed by a worker. `raisesTo` is not part of the decision-log schema, so a
+ * worker can't set it either; the runner owns that call until ABT-84 designs the field.
+ */
 function workerLogViolation(env: NodeJS.ProcessEnv, ticket: string, input: RecordInput): string | undefined {
   if (env.ABT_ROLE !== "worker") return undefined;
   if (!WORKER_KINDS.some((k) => k === input?.kind)) {
     return `workers may only write ask-point, pivot and blocked records, not ${JSON.stringify(input?.kind)}`;
   }
   if (env.ABT_TICKET && env.ABT_TICKET !== ticket) return `workers may only write to their own ticket's log (${env.ABT_TICKET}), not ${ticket}`;
+  if (input.kind === "ask-point") {
+    if (input.payload && "handling" in input.payload) return "workers may not set handling on an ask-point: only the runner settles ask-points";
+    if (input.result !== "open") return `a worker's ask-point must have result "open", not ${JSON.stringify(input.result)}: only the runner settles ask-points`;
+  }
   return undefined;
 }
 
