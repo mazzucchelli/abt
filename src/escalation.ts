@@ -27,14 +27,14 @@ export type Handling = "decided" | "escalated";
 
 /**
  * The ask-point policy by tier. An ask-point escalates on its own when it is irreversible or pushes the
- * ticket to high. On a high ticket the foreseeable ones were batched into plan approval, so one that
+ * ticket to high. On a high ticket the foreseeable ones were batched into spec approval, so one that
  * arrives now is a surprise and escalates. Otherwise it is decided and logged, and on medium also listed
  * in the PR description.
  */
 export function askPointPolicy(tier: RiskTier, a: Pick<AskPoint, "reversible" | "raisesTo">): { handling: Handling; listedInPr: boolean; why: string } {
   if (!a.reversible) return { handling: "escalated", listedInPr: false, why: "the choice is irreversible" };
   if (a.raisesTo === "high") return { handling: "escalated", listedInPr: false, why: "taking it would push the ticket to high risk" };
-  if (tier === "high") return { handling: "escalated", listedInPr: false, why: "high risk: only plan approval may settle ask-points" };
+  if (tier === "high") return { handling: "escalated", listedInPr: false, why: "high risk: only spec approval may settle ask-points" };
   return { handling: "decided", listedInPr: tier === "medium", why: `${tier} risk and reversible: decided by the recommendation` };
 }
 

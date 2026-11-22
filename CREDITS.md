@@ -59,7 +59,7 @@ Precedence: project `CLAUDE.md`, then principles, then generic skill advice. A d
 | `procedures/tdd/mocking.md` | `mattpocock-skills`@49dd158 skills/engineering/tdd/mocking.md | verbatim |  |
 | `procedures/tdd/tests.md` | `mattpocock-skills`@49dd158 skills/engineering/tdd/tests.md | verbatim |  |
 | `procedures/ticket-splitting/SKILL.md` | `mattpocock-skills`@49dd158 skills/engineering/to-tickets/SKILL.md | adapted | Renamed from to-tickets so its skill name differs from the `/abt:to-tickets` command. Frontmatter hidden. Setup pointer replaced by the project's `docs/agents/`. |
-| `procedures/triaging/AGENT-BRIEF.md` | `mattpocock-skills`@49dd158 skills/engineering/triage/AGENT-BRIEF.md | verbatim |  |
+| `procedures/triaging/AGENT-BRIEF.md` | `mattpocock-skills`@49dd158 skills/engineering/triage/AGENT-BRIEF.md | adapted | Says tracker ticket and worker, not GitHub issue and AFK agent; the `gh issue list` example is tracker-neutral. |
 | `procedures/triaging/OUT-OF-SCOPE.md` | `mattpocock-skills`@49dd158 skills/engineering/triage/OUT-OF-SCOPE.md | verbatim |  |
 | `procedures/triaging/SKILL.md` | `mattpocock-skills`@49dd158 skills/engineering/triage/SKILL.md | adapted | Renamed from triage so its skill name differs from the `/abt:triage` command. Frontmatter hidden. Setup pointer replaced by `docs/agents/`; grilling and domain-modeling are called as `abt:`-prefixed. |
 | `reference/SKILL-MECHANICS.md` | `mattpocock-skills`@49dd158 skills/productivity/writing-for-agents/SKILL-MECHANICS.md | adapted | Links point at writing-for-agents.md, not SKILL.md. |

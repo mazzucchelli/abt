@@ -10,7 +10,7 @@ Domain terms for the AI workflow. Definitions only, no implementation detail.
 
 **Pass**: One run of a ticket's behavior tree from the root. A pass happens when the ticket's worker ends, when the primary agent nudges the runner, or on a regular poll.
 
-**Worker slot**: Permission for one worker agent to be running. Slots are shared across all projects on a machine, with an optional lower cap per project, and only a running worker holds one: a ticket waiting on CI, an approval, a blocker or the human holds none.
+**Worker slot**: Permission for one worker agent to be running. Slots are shared across all projects on a machine, with an optional lower cap per project (both caps are configured as `maxWorkers`), and only a running worker holds one: a ticket waiting on CI, an approval, a blocker or the human holds none.
 
 **Behavior tree**: The definition of how one work type moves from ticket to done: a tree of conditions (facts read from the world) and actions, re-run from the root on every pass, with no state stored inside it.
 
@@ -30,11 +30,13 @@ Domain terms for the AI workflow. Definitions only, no implementation detail.
 
 **Harness adapter**: The part of the runner that turns a harness-neutral agent action into a run of one specific harness, and reports back how it ended.
 
-**Launch profile**: The mapping from a harness-neutral agent action to the actual command that starts a worker: which harness, which account or gateway, and which model and effort each complexity grade uses.
+**Launch profile**: The mapping from a harness-neutral agent action to the actual command that starts a worker: which harness, which account or gateway, and which pinned model ID each model family resolves to. Which family and effort a complexity grade uses is routing's choice, not the profile's.
+
+**Adapter doc**: A project's own workflow file, `workflow.md`, that tells the runner how that project is set up (for example its isolation settings). It is a protected file, separate from the merge policy.
 
 **Worker agent**: An agent dispatched by the runner to carry out one unit of work, running at the model and effort the routing chose.
 
-**Autonomous merge**: An agent merging its own PR into the default branch after every gate in the project's agreed merge policy has passed. A human approval can be one of those gates; the no-human case is the policy with zero required approvals. Never a direct push.
+**Autonomous merge**: An agent merging its own PR into the default branch after every gate in the project's agreed merge policy has passed. This says when a merge is allowed; the runner-merge is how it happens. A human approval can be one of those gates; the no-human case is the policy with zero required approvals. Never a direct push.
 
 **Merge policy**: The per-project agreement, kept in a file separate from the adapter doc and made when the workflow is first initiated there, of when an autonomous merge may happen: which checks and human approvals are required, who enforces them, the compensating controls, the risk cap and whether abt merges at all or only opens the PR. Without an agreed policy, or when it says PR only, the agent does not merge.
 
@@ -62,9 +64,11 @@ Domain terms for the AI workflow. Definitions only, no implementation detail.
 
 **Owner reply**: A comment from the ticket's owner on a Needs you ticket, the only comments the runner acts on. The vocabulary is fixed: answer (a bare "yes" accepts the recommendation), abandon, re-run, raise tier. Anything else is logged as a note and does not resume the ticket.
 
-**Routing**: Choosing the model and thinking effort for a unit of work from its complexity grade, done by the runner when it dispatches the worker. Sonnet is the default; Opus is for hard work.
+**Routing**: Choosing the model family and thinking effort for a unit of work from its complexity grade, done by the runner when it dispatches the worker; the launch profile turns the family into a pinned model ID. Sonnet is the default; Opus is for hard work.
 
 **Complexity grade**: How hard a ticket is to get right: simple, standard or hard. Each grade maps to one model and effort pair. Distinct from risk. Set by rule floors plus a judge that can only raise it, and it rises one step when a worker fails repeatedly.
+
+**Judge**: A model that classifies one thing the rules cannot settle, such as a ticket's risk tier or complexity grade, and can only raise the rule floor's result, never lower it. A behavior tree can also use a judge as a condition.
 
 **Worker worktree**: The isolated checkout a single worker agent works in, tied to exactly one ticket and one branch for the life of that run.
 
@@ -73,8 +77,6 @@ Domain terms for the AI workflow. Definitions only, no implementation detail.
 **Branch upkeep**: After a landing, the runner rebasing each other open worker branch onto the new default branch in its worktree and pushing it with a lease. A conflict goes back to the worker, then to the human if the worker cannot resolve it.
 
 **Kept worktree**: A failed run's worker worktree, kept for a time (7 days by default) so the human can look at it, then removed. A worktree with uncommitted work is never removed; it is reported to the human.
-
-**Landing strategy**: How a project lines up verified PRs to merge into the default branch, one after another. Chosen per project; the rest of the workflow does not change with it.
 
 **Skill**: A storage format only: a folder with a `SKILL.md` (name, description, body) that a harness can load. Procedures are stored as skills; the word says how something is kept, never what it is.
 
@@ -128,4 +130,4 @@ Domain terms for the AI workflow. Definitions only, no implementation detail.
 
 **Land tree**: The behavior tree that decides whether a verified PR merges. The merge policy is agreed with one specific land tree; a different one blocks merging and sends the ticket to Needs you.
 
-**Runner-merge**: The one way a PR gets merged: the runner re-checks the PR right before merging and only merges the exact commit it checked. No tree can merge any other way.
+**Runner-merge**: The one way a PR gets merged, whenever an autonomous merge is allowed: the runner re-checks the PR right before merging and only merges the exact commit it checked. No tree can merge any other way.

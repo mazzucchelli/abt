@@ -77,7 +77,7 @@ test("an ask-point that pushes the ticket to high escalates even when reversible
   assert.equal(await w.state(), "Needs you");
 });
 
-test("on a high ticket every ask-point escalates: only the foreseeable ones were batched into plan approval", async () => {
+test("on a high ticket every ask-point escalates: only the foreseeable ones were batched into spec approval", async () => {
   const w = await world("high");
   const r = await handleAskPoint(w.deps, { ticket: w.id, run: "r1", node: null, askPoint: ask() });
   assert.equal(r.handling, "escalated");
