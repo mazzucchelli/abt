@@ -1,16 +1,15 @@
 import { mkdirSync, readFileSync, renameSync, rmSync, writeFileSync, existsSync } from "node:fs";
 import { join } from "node:path";
 import { sha256 } from "../landing/policy.ts";
+import { PROTECTED_GLOBS } from "../protected-paths.ts";
+import { matches } from "../risk/rules.ts";
 import type { DefaultBranchFiles, OnboardHost } from "./host.ts";
 
-/** What a pin covers. Trees are `.agents/abt/trees/*.yaml`; check scripts anything under `.agents/abt/checks/`. */
-const FIXED_PATHS = [".agents/abt/merge-policy.yaml", ".agents/abt/workflow.md", ".agents/abt/facts.yaml"];
 const ABT_DIR = ".agents/abt/";
 
+/** Whether a file is one the pins cover: the policy, adapter doc, facts snapshot, trees and check scripts. */
 export function isProtected(path: string): boolean {
-  if (FIXED_PATHS.includes(path)) return true;
-  if (path.startsWith(`${ABT_DIR}checks/`)) return true;
-  return path.startsWith(`${ABT_DIR}trees/`) && path.endsWith(".yaml") && !path.slice(`${ABT_DIR}trees/`.length).includes("/");
+  return PROTECTED_GLOBS.some((glob) => matches(glob, path));
 }
 
 /** The fingerprints of every protected file at one moment. */

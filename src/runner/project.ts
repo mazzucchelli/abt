@@ -27,6 +27,7 @@ import { GitTrees, type TreeStore } from "../trees.ts";
 import type { Workspace } from "../workspace/contract.ts";
 import { WorkerEnvs, type IsolationConfig } from "../workspace/env.ts";
 import { GitWorkspace } from "../workspace/git.ts";
+import { GitPolicy, type PolicyStore } from "../landing/policy.ts";
 import type { ProjectEntry } from "./config.ts";
 import type { RunnerProject } from "./daemon.ts";
 
@@ -45,6 +46,8 @@ export interface ProjectPorts {
   judge?: Judge;
   routing?: RoutingDeps;
   risk?: TicketRunDeps["risk"];
+  /** Where the agreed risk map is read from. Not the landing policy: the map alone feeds the floors. */
+  riskPolicy?: PolicyStore;
   maxWorkers?: number;
   /** The name of the launch profile the project's workers run under; a usage limit pauses dispatch per profile. */
   profileName?: string;
@@ -63,7 +66,7 @@ export interface SharedDeps {
  * drift: they differ only in the ports they pass.
  */
 export function assembleProject(p: ProjectPorts, shared: SharedDeps): RunnerProject {
-  const { tracker, codeHost, harness, workspace, envs, judge, routing, risk } = p;
+  const { tracker, codeHost, harness, workspace, envs, judge, routing, risk, riskPolicy } = p;
   const { log, newId, plugin } = shared;
   return {
     name: p.name, tracker, log, workspace, envs, defaultBranch: p.defaultBranch,
@@ -72,7 +75,7 @@ export function assembleProject(p: ProjectPorts, shared: SharedDeps): RunnerProj
     ...(p.profileName && { profile: p.profileName }),
     deps: (ticket) => ({
       ticket, tracker, codeHost, harness, workspace, envs, log, newId, plugin, project: p.trees,
-      ...(judge && { judge }), ...(routing && { routing }), ...(risk && { risk }),
+      ...(judge && { judge }), ...(routing && { routing }), ...(risk && { risk }), ...(riskPolicy && { riskPolicy }),
     }),
   };
 }
@@ -137,6 +140,7 @@ async function buildRealPorts(entry: ProjectEntry, ctx: RealContext): Promise<Pr
     judge,
     routing: { classifier: grade, models: { sonnet: profile.models.sonnet, opus: profile.models.opus } },
     risk: { classifier: risk },
+    riskPolicy: new GitPolicy(entry.path, tip),
     ...(entry.maxWorkers && { maxWorkers: entry.maxWorkers }),
     profileName: CLAUDE_SUBSCRIPTION,
   };
