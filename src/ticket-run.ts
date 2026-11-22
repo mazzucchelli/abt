@@ -13,6 +13,7 @@ import type { Notifier } from "./notify/contract.ts";
 import type { Clock } from "./clock.ts";
 import { isScalar, parseDocument, visit } from "yaml";
 import { parseTree, TreeError } from "./tree.ts";
+import { hasTree, noTreeReason } from "./tracker/contract.ts";
 import { LayeredTrees, resolveTree, type TreeStore } from "./trees.ts";
 import { checkPins, type PinCheck, type PinStore } from "./onboard/pins.ts";
 import type { DefaultBranchFiles } from "./onboard/host.ts";
@@ -92,6 +93,10 @@ export async function runTicket(deps: TicketRunDeps): Promise<TicketRunResult> {
     escalate(deps, run, why, "the owner to read the change and, if it is right, re-pin with `abt onboard pin`", pins.project);
     await finish(deps, "fail", "Needs you");
     return { run, result: "skipped", terminal: false };
+  }
+  // Fail closed: a work type with no tree never falls through to implement, so it can never reach landing.
+  if (first.workType && !hasTree(first.workType) && (first.state === "Todo" || first.state === "In progress" || first.state === "In review")) {
+    return refuseWorkType(deps, run, noTreeReason(first.workType));
   }
   if (first.workType === "research") return runResearch(deps, run);
   const state = first.state;
@@ -316,6 +321,15 @@ async function refuse(deps: TicketRunDeps, run: string, tree: string, errors: st
     body: `The "${tree}" tree was refused:\n\n${errors.join("\n")}`,
     data: { tree, errors },
   });
+  await finish(deps, "fail", "Needs you");
+  return { run, result: "fail", terminal: true };
+}
+
+/** A work type with no tree: Needs you with the reason, no worker, no worktree left behind. */
+async function refuseWorkType(deps: TicketRunDeps, run: string, reason: string): Promise<TicketRunResult> {
+  escalate(deps, run, reason, "the work type changed to one with a tree, or ABT-14 shipped");
+  await deps.workspace.remove(deps.ticket);
+  deps.envs?.release(deps.ticket);
   await finish(deps, "fail", "Needs you");
   return { run, result: "fail", terminal: true };
 }

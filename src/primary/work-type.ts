@@ -1,4 +1,4 @@
-import { WORK_TYPES, type WorkType } from "../tracker/contract.ts";
+import { hasTree, noTreeReason, WORK_TYPES, type WorkType } from "../tracker/contract.ts";
 
 /** Where a work type came from, strongest first. */
 export type TypeSource = "command" | "label" | "entry" | "inferred";
@@ -55,6 +55,12 @@ export function typeInputs(intake: Intake, label?: WorkType): TypeInputs {
  * implement for exploratory work is a question for the user rather than a decision.
  */
 export function resolveWorkType(subject: string, input: TypeInputs): TypeResolution {
+  const r = resolveNamed(subject, input);
+  if (r.ok && !hasTree(r.workType)) return { ok: false, outcome: "refused", reply: `Not queued: ${subject}: ${noTreeReason(r.workType)}.` };
+  return r;
+}
+
+function resolveNamed(subject: string, input: TypeInputs): TypeResolution {
   const named: [TypeSource, string | undefined][] = [
     ["command", input.command],
     ["label", input.label],
