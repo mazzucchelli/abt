@@ -24,6 +24,7 @@ bin/abt runner start          # install and load the launchd agent
 bin/abt runner status         # exit 0 when running, 3 otherwise
 bin/abt runner nudge ABT-55   # run a pass for one ticket now
 bin/abt runner stop
+bin/abt watch                 # read-only live board of the workers (b board, j/k scroll log, space pause, q quit); --once prints one frame
 ```
 
 Scheduling protects the shared subscription window. At most 3 workers run at once (`maxWorkers` in `config.yaml`, and optionally a lower `maxWorkers` per project); only a running worker holds a slot. Free slots go first to usage-limit requeues, then to in-flight trees that need their next agent step, then to new tickets by priority and oldest first. A ticket is dispatched only after all its blockers are Done (merged), and a worker that finds a dependency mid-run appends a `blocked` record (`abt log append`, payload `{"by": [...]}`) to release its slot and wait. A usage-limit exit pauses new dispatch on that profile until the reported reset, or 30 minutes, while running workers continue. A worker running past its wall-clock cap (`wallClockMinutes`, default simple 45, standard 90, hard 180) is killed and a `fail` is logged that counts toward the retry.

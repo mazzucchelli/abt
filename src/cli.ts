@@ -16,6 +16,7 @@ import { validateWithUses } from "./validate.ts";
 import { policyProblems } from "./landing/policy.ts";
 import { primaryCommand } from "./primary/cli.ts";
 import { onboardCommand } from "./onboard/cli.ts";
+import { watchCommand } from "./watch/app.ts";
 import { upgradeCommand } from "./install/cli.ts";
 import { selfTestCommand } from "./install/selftest.ts";
 import { retypeAskPoint } from "./retype.ts";
@@ -34,6 +35,7 @@ commands:
   reply      write a chat reply to an escalation on the ticket
   onboard    agree a merge policy for a repo: probe, open the PR, settle, pin
   validate   validate a behavior-tree or merge-policy YAML file
+  watch      read-only live board of what the workers are doing
   upgrade    install a tag under the abt folder and switch to it, or roll back
   selftest   run the startup self-test of this install against Claude Code
 `;
@@ -78,6 +80,8 @@ async function main(argv: string[]): Promise<number> {
   if (command === "enqueue" || command === "reply" || command === "create" || command === "block") return primaryCommand(command, rest);
 
   if (command === "onboard") return onboardCommand(rest);
+
+  if (command === "watch") return watchCommand(rest);
 
   if (command === "upgrade") return upgradeCommand(rest);
 

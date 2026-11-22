@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
-import { mkdirSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
+import { appendFileSync, mkdirSync, writeFileSync } from "node:fs";
+import { dirname, join } from "node:path";
 import { systemSources } from "../../tracker/credentials.ts";
 import type { HarnessAdapter, WorkerOutcome, WorkerRequest } from "../contract.ts";
 import { buildLaunch, injectedSettings, workerHooks } from "./launch.ts";
@@ -17,6 +17,8 @@ export interface ClaudeAdapterDeps {
   readToken: () => string;
   hostEnv: Record<string, string | undefined>;
   newId?: () => string;
+  /** Stamps the live transcript lines. */
+  now?: () => Date;
   /** Resolves when dispatch is allowed; rejects to refuse it. Required: in production it is the startup self-test gate. */
   ready: () => Promise<void>;
 }
@@ -52,17 +54,43 @@ export class ClaudeCodeAdapter implements HarnessAdapter {
     } catch (e) {
       return failed((e as Error).message);
     }
-    mkdirSync(dir, { recursive: true });
+    // A node ID is a path (implement/2/0), so the files go in nested folders.
+    mkdirSync(dirname(transcriptPath), { recursive: true });
     writeFileSync(settingsPath, injectedSettings({ hooks: workerHooks(profile) }, req.feedback.commands));
 
     const scrub = (s: string) => (token ? s.split(token).join("[redacted]") : s);
+    // The transcript grows while the worker runs, one complete scrubbed line at a time, each stamped with
+    // when it arrived (the stream carries no times), so `abt watch` can show live activity.
+    let pending = "";
+    let streamed = false;
+    const stamp = (l: string) => {
+      if (!l.trim()) return;
+      let text = scrub(l);
+      try {
+        const e: unknown = JSON.parse(text);
+        if (typeof e === "object" && e !== null && !Array.isArray(e)) text = JSON.stringify({ ...e, abt_ts: (this.#d.now?.() ?? new Date()).toISOString() });
+      } catch {
+        // not JSON: kept as it is
+      }
+      if (!streamed) writeFileSync(transcriptPath, "");
+      streamed = true;
+      appendFileSync(transcriptPath, `${text}\n`);
+    };
+    const onStdout = (chunk: string) => {
+      pending += chunk;
+      const lines = pending.split("\n");
+      pending = lines.pop() ?? "";
+      lines.forEach(stamp);
+    };
     let res;
     try {
-      res = await this.#d.spawn(spec);
+      res = await this.#d.spawn(spec, onStdout);
     } catch (e) {
+      stamp(pending);
       return failed(scrub(`could not launch ${profile.binary}: ${(e as Error).message}`));
     }
-    writeFileSync(transcriptPath, scrub(res.stdout));
+    stamp(pending);
+    if (!streamed) writeFileSync(transcriptPath, scrub(res.stdout));
 
     const s = parseStream(res.stdout);
     const usage = usageLimitOf(s);
