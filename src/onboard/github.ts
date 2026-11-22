@@ -1,20 +1,13 @@
-import { execFile } from "node:child_process";
 import { mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
-import { promisify } from "node:util";
 import { parse } from "yaml";
+import { createPr, readPrState } from "../codehost/gh.ts";
+import { errorText, systemExec, type Exec } from "../codehost/exec.ts";
 import { projectIdFromRemote, type FactsProbe, type ProjectFacts } from "./facts.ts";
 import type { DefaultBranchFiles, OnboardHost, OnboardPr, OpenedPr, PrState } from "./host.ts";
 
-const run = promisify(execFile);
-
-const errorText = (e: unknown) => `${(e as Error).message} ${(e as { stderr?: string }).stderr ?? ""}`;
-
-/** Runs a command and resolves to its stdout. Injected so the adapters are testable without git or gh. */
-export type Exec = (cmd: string, args: string[], opts?: { cwd?: string }) => Promise<string>;
-
-export const systemExec: Exec = async (cmd, args, opts) => (await run(cmd, args, { ...opts, maxBuffer: 64 * 1024 * 1024 })).stdout;
+export { systemExec, type Exec };
 
 /** The default branch as the remote has it. */
 export async function remoteDefaultBranch(repo: string, exec: Exec = systemExec): Promise<string> {
@@ -184,10 +177,7 @@ export class GhHost implements OnboardHost {
       await git("add", "--all");
       await git("commit", "-m", pr.title);
       await git("push", "--set-upstream", "origin", pr.branch);
-      const url = (await this.#exec("gh", ["pr", "create", "--base", this.#base, "--head", pr.branch, "--title", pr.title, "--body", pr.body], { cwd: this.#repo })).trim();
-      const number = Number(/\/pull\/(\d+)$/.exec(url)?.[1]);
-      if (!Number.isInteger(number)) throw new Error(`gh did not return a PR URL: ${url}`);
-      return { number, url };
+      return await createPr(this.#exec, { cwd: this.#repo, base: this.#base, head: pr.branch, title: pr.title, body: pr.body });
     } finally {
       await this.#exec("git", ["worktree", "remove", "--force", dir], { cwd: this.#repo }).catch(() => undefined);
       await rm(dir, { recursive: true, force: true });
@@ -195,9 +185,9 @@ export class GhHost implements OnboardHost {
   }
 
   async readState(number: number): Promise<PrState> {
-    const out = JSON.parse(await this.#exec("gh", ["pr", "view", String(number), "--json", "state,mergeCommit"], { cwd: this.#repo })) as { state: string; mergeCommit?: { oid?: string } | null };
-    if (out.state === "MERGED") return { state: "merged", mergeCommit: out.mergeCommit?.oid ?? "" };
-    return { state: out.state === "CLOSED" ? "closed" : "open" };
+    const pr = await readPrState(this.#exec, number, { cwd: this.#repo });
+    if (pr.state === "merged") return { state: "merged", mergeCommit: pr.mergeCommit ?? "" };
+    return { state: pr.state };
   }
 }
 

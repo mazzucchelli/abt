@@ -29,6 +29,8 @@ export interface CodeHostFacts {
   headSha?: string;
   /** Human approvals the PR's current head has. */
   approvals?: number;
+  /** Whether the PR merges cleanly into its base: false on conflicts. Missing while the host has not worked it out. */
+  mergeable?: boolean;
   /** CI jobs by name. */
   jobs?: Record<string, JobResult>;
   /** Boolean verdicts for named checks. A missing entry means the fact is unknown. */
