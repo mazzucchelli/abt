@@ -5,7 +5,8 @@ import { ADAPTER_DOC_PATH, loadAdapterDoc, type TrackerConfig } from "../tracker
 import type { Tracker } from "../tracker/contract.ts";
 import type { CodeHost, PrHost } from "../codehost/contract.ts";
 import { GhCodeHost } from "../codehost/gh.ts";
-import { systemExec } from "../codehost/exec.ts";
+import { systemExec, type Exec } from "../codehost/exec.ts";
+import { FileGuard, LandingGuard } from "../landing/guard.ts";
 import type { HarnessAdapter } from "../harness/contract.ts";
 import { ClaudeCodeAdapter } from "../harness/claude/adapter.ts";
 import { claudeGradeClassifier } from "../harness/claude/grade-judge.ts";
@@ -17,7 +18,7 @@ import type { Spawner } from "../harness/claude/spawn.ts";
 import type { Judge } from "../judge/contract.ts";
 import type { DecisionLog } from "../log/store.ts";
 import { projectIdFromRemote, repoSlug } from "../onboard/facts.ts";
-import { remoteDefaultBranch } from "../onboard/github.ts";
+import { GhProbe, remoteDefaultBranch } from "../onboard/github.ts";
 import { PrValidator } from "../pr-validation.ts";
 import { branchFor } from "../workspace/branch.ts";
 import type { GradeClassifier, RoutingDeps } from "../routing.ts";
@@ -49,6 +50,8 @@ export interface ProjectPorts {
   /** Where the agreed risk map is read from. Not the landing policy: the map alone feeds the floors. */
   riskPolicy?: PolicyStore;
   maxWorkers?: number;
+  /** Re-probes the project before every autonomous merge and watches the default branch after it. */
+  guard?: LandingGuard;
   /** The name of the launch profile the project's workers run under; a usage limit pauses dispatch per profile. */
   profileName?: string;
 }
@@ -66,16 +69,17 @@ export interface SharedDeps {
  * drift: they differ only in the ports they pass.
  */
 export function assembleProject(p: ProjectPorts, shared: SharedDeps): RunnerProject {
-  const { tracker, codeHost, harness, workspace, envs, judge, routing, risk, riskPolicy } = p;
+  const { tracker, codeHost, harness, workspace, envs, judge, routing, risk, riskPolicy, guard } = p;
   const { log, newId, plugin } = shared;
   return {
     name: p.name, tracker, log, workspace, envs, defaultBranch: p.defaultBranch,
     prValidator: new PrValidator({ host: codeHost, plugin, onError: (e, where) => console.error(`abt runner: ${where}: ${(e as Error).message}`) }),
     ...(p.maxWorkers && { maxWorkers: p.maxWorkers }),
     ...(p.profileName && { profile: p.profileName }),
+    ...(guard && { guard }),
     deps: (ticket) => ({
       ticket, tracker, codeHost, harness, workspace, envs, log, newId, plugin, project: p.trees,
-      ...(judge && { judge }), ...(routing && { routing }), ...(risk && { risk }), ...(riskPolicy && { riskPolicy }),
+      ...(judge && { judge }), ...(routing && { routing }), ...(risk && { risk }), ...(riskPolicy && { riskPolicy }), ...(guard && { guard }),
     }),
   };
 }
@@ -93,11 +97,13 @@ export interface RealContext extends SharedDeps {
   /** Reads the OAuth token at the moment of each launch. Never cached. */
   readToken: () => string;
   createTracker?: (config: TrackerConfig) => Promise<Tracker>;
+  /** Runs `git` and `gh` for every project. Defaults to the machine's own. */
+  exec?: Exec;
 }
 
 /** One configured project's real ports: its adapter doc, git checkout, GitHub remote and the Claude harness. */
 async function buildRealPorts(entry: ProjectEntry, ctx: RealContext): Promise<ProjectPorts> {
-  const exec = systemExec;
+  const exec = ctx.exec ?? systemExec;
   const doc = loadAdapterDoc(join(entry.path, ADAPTER_DOC_PATH));
   const tracker = await (ctx.createTracker ?? ((c) => createLinearTracker(c, { apiKey: resolveCredential(c.credentials) })))(doc.tracker);
 
@@ -113,12 +119,17 @@ async function buildRealPorts(entry: ProjectEntry, ctx: RealContext): Promise<Pr
   });
   const codeHost = new GhCodeHost({
     repo: repoSlug(id), defaultBranch, exec,
+    // Revert PRs are made from the project's own checkout.
+    checkout: entry.path,
     // The ticket's branch and PR title are the ones the worker was started on.
     locate: async (t) => {
       const ticket = await tracker.readTicket(t);
       return { branch: branchFor(ticket, ctx.log.read(t)), title: ticket.title };
     },
   });
+
+  // The default branch's side of a merge: the merge policy as committed there, the abt home's record of pauses and watched merges, and real CI and revert PRs.
+  const guard = new LandingGuard({ project: id, probe: new GhProbe({ repo: entry.path, exec }), store: new FileGuard(ctx.home), policy: new GitPolicy(entry.path, tip), tracker, main: codeHost });
 
   const { profile } = ctx;
   // A judge reads the token per call, so a rotated Keychain item is picked up without a restart.
@@ -136,6 +147,7 @@ async function buildRealPorts(entry: ProjectEntry, ctx: RealContext): Promise<Pr
     workspace: new GitWorkspace(entry.path, join(ctx.home, "worktrees", entry.name), tip),
     envs: new WorkerEnvs(join(ctx.home, "lanes", entry.name), isolation),
     defaultBranch,
+    guard,
     trees: new GitTrees(entry.path, tip, ".agents/abt/trees"),
     judge,
     routing: { classifier: grade, models: { sonnet: profile.models.sonnet, opus: profile.models.opus } },

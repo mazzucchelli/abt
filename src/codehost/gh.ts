@@ -1,4 +1,7 @@
-import { HeadMovedError, type CodeHost, type CodeHostFacts, type CommitStatus, type JobResult, type OpenPr, type PrHost } from "./contract.ts";
+import { mkdtemp, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { HeadMovedError, type CodeHost, type CodeHostFacts, type CommitStatus, type JobResult, type MainHost, type OpenPr, type PrHost } from "./contract.ts";
 import { errorText, systemExec, type Exec } from "./exec.ts";
 
 /** A `gh` answer that is not the shape its call promises. Nothing downstream ever sees a guessed value. */
@@ -116,6 +119,8 @@ export interface GhCodeHostOptions {
   defaultBranch: string;
   /** The ticket's branch and PR title. The branch is pushed by the worker; this host never pushes. */
   locate(ticket: string): { branch: string; title: string } | Promise<{ branch: string; title: string }>;
+  /** A local clone of the repository, where revert branches are made. Needed only by `openRevertPr`. */
+  checkout?: string;
   exec?: Exec;
   /** Delay between reads of a just-merged PR for its merge commit. */
   mergeCommitRetryMs?: number;
@@ -125,13 +130,19 @@ const DESCRIPTION_CAP = 140;
 const MERGE_COMMIT_ATTEMPTS = 5;
 const LIST_FIELDS = "number,url,state,headRefOid,baseRefName,mergeCommit,mergeable";
 
-/** The code host over `gh`: facts, the PR's life and the `abt/validate` status. The default branch's side (MainHost) is not here. */
-export class GhCodeHost implements CodeHost, PrHost {
+/** The branch the revert of a commit is pushed to: named by the commit, so a repeat call finds it. */
+export const revertBranch = (sha: string): string => `abt/revert-${sha}`;
+
+const REVERT_IDENTITY = ["-c", "user.name=abt", "-c", "user.email=abt@users.noreply.github.com"];
+
+/** The code host over `gh`: facts, the PR's life, the `abt/validate` status, and the default branch's CI and revert PRs. */
+export class GhCodeHost implements CodeHost, PrHost, MainHost {
   readonly #repo: string;
   readonly #base: string;
   readonly #locate: GhCodeHostOptions["locate"];
   readonly #exec: Exec;
   readonly #retryMs: number;
+  readonly #checkout: string | undefined;
 
   constructor(o: GhCodeHostOptions) {
     this.#repo = o.repo;
@@ -139,6 +150,7 @@ export class GhCodeHost implements CodeHost, PrHost {
     this.#locate = o.locate;
     this.#exec = o.exec ?? systemExec;
     this.#retryMs = o.mergeCommitRetryMs ?? 1000;
+    this.#checkout = o.checkout;
   }
 
   #gh(...args: string[]): Promise<string> {
@@ -272,5 +284,55 @@ export class GhCodeHost implements CodeHost, PrHost {
   async postStatus(sha: string, status: CommitStatus): Promise<void> {
     const description = status.description.length > DESCRIPTION_CAP ? `${status.description.slice(0, DESCRIPTION_CAP - 1)}…` : status.description;
     await this.#api(`statuses/${sha}`, "-X", "POST", "-f", `state=${status.state}`, "-f", `context=${status.context}`, "-f", `description=${description}`, ...(status.targetUrl ? ["-f", `target_url=${status.targetUrl}`] : []));
+  }
+
+  async mainJobs(sha: string): Promise<Record<string, JobResult>> {
+    return this.#jobs(sha);
+  }
+
+  /** One revert PR per commit: its branch is named by the commit, so a second call finds the first one's PR (or its pushed branch) instead of making another. Nothing here merges it. */
+  async openRevertPr(sha: string, pr: { title: string; body: string }): Promise<string> {
+    const branch = revertBranch(sha);
+    const call = "pr list";
+    const listed = arr(call, json(call, await this.#gh("pr", "list", "--repo", this.#repo, "--head", branch, "--state", "all", "--limit", "100", "--json", LIST_FIELDS)), "the response").map((r) => prRow(call, r));
+    const existing = listed.find((r) => r.state === "open") ?? listed.sort((a, b) => b.number - a.number)[0];
+    if (existing) return existing.url;
+    if (this.#checkout === undefined) throw new Error("openRevertPr needs a local checkout of the repository");
+    const checkout = this.#checkout;
+    // A branch that is already pushed was left by a call that failed before opening its PR: only the PR is missing.
+    if ((await this.#git(checkout, "ls-remote", "--heads", "origin", branch)).trim() === "") await this.#pushRevert(checkout, sha, branch, pr.title);
+    return (await createPr(this.#exec, { repo: this.#repo, base: this.#base, head: branch, title: pr.title, body: pr.body })).url;
+  }
+
+  /** A git command run in `cwd`, under abt's own identity so the clone's user settings are never needed. */
+  #git(cwd: string, ...args: string[]): Promise<string> {
+    return this.#exec("git", [...REVERT_IDENTITY, ...args], { cwd });
+  }
+
+  /** Reverts `sha` on a detached worktree of the default branch, in a temporary directory, and pushes the result to `branch`. */
+  async #pushRevert(checkout: string, sha: string, branch: string, title: string): Promise<void> {
+    await this.#git(checkout, "fetch", "origin", this.#base);
+    try {
+      await this.#git(checkout, "merge-base", "--is-ancestor", sha, `origin/${this.#base}`);
+    } catch {
+      throw new Error(`${sha} is not on ${this.#base}, so it is not reverted`);
+    }
+    const parents = (await this.#git(checkout, "rev-list", "--parents", "-n", "1", sha)).trim().split(/\s+/).length - 1;
+    const dir = await mkdtemp(join(tmpdir(), "abt-revert-"));
+    const tree = join(dir, "tree");
+    try {
+      await this.#git(checkout, "worktree", "add", "--detach", tree, `origin/${this.#base}`);
+      try {
+        await this.#git(tree, "revert", "--no-commit", ...(parents > 1 ? ["-m", "1"] : []), sha);
+      } catch (e) {
+        await this.#git(tree, "revert", "--abort").catch(() => undefined);
+        throw new Error(`reverting ${sha} on ${this.#base} conflicts with what came after it: ${errorText(e)}`);
+      }
+      await this.#git(tree, "commit", "--no-verify", "-m", title);
+      await this.#git(tree, "push", "--no-verify", "origin", `HEAD:refs/heads/${branch}`);
+    } finally {
+      await this.#git(checkout, "worktree", "remove", "--force", tree).catch(() => undefined);
+      await rm(dir, { recursive: true, force: true });
+    }
   }
 }
