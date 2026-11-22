@@ -10,10 +10,19 @@ Requires Node 24 or newer.
 
 ```bash
 npm install
-bin/abt validate docs/examples/land.yaml
+bin/abt validate defaults/trees/land.yaml
 ```
 
-The tree format is defined by [`schema/tree.schema.json`](schema/tree.schema.json); examples live in [`docs/examples/`](docs/examples).
+The tree format is defined by [`schema/tree.schema.json`](schema/tree.schema.json); shipped trees live in [`defaults/trees/`](defaults/trees); the merge-policy and adapter examples live in [`docs/examples/`](docs/examples).
+
+## Dead-code sweep
+
+```bash
+npm run reachability            # report
+npm run reachability -- --json  # machine-readable
+```
+
+Walks the import graph from `src/cli.ts` and counts each export's references in `src/` and `test/`. It lists src files the CLI cannot reach, exports only tests use, and exports nothing imports. The scan is regex-based and cannot see YAML-driven names (check names, `use:`), so treat the output as leads to verify, not proof. It always exits 0.
 
 ## Runner daemon
 

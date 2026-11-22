@@ -54,7 +54,7 @@ function transcript(path: string): string {
 }
 
 const PROCEDURES = [
-  "implement", "tdd", "code-review", "diagnosing-bugs", "research", "spike", "pr", "refactoring",
+  "implement", "tdd", "code-review", "diagnosing-bugs", "research", "spike", "pr",
   "setup-pre-commit", "setup-ts-deep-modules", "grilling", "domain-modeling", "spec-writing", "ticket-splitting", "triaging",
 ];
 

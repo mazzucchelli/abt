@@ -5,9 +5,10 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { FakeClock } from "../../src/clock.ts";
 import { DecisionLog } from "../../src/log/store.ts";
-import { assessTicket, overrideTier, type ClassifyRequest, type Diff, type RiskClassifier, type RiskDeps } from "../../src/risk/assess.ts";
+import { assessTicket, type ClassifyRequest, type Diff, type RiskClassifier, type RiskDeps } from "../../src/risk/assess.ts";
 import { parseRiskMap } from "../../src/risk/rules.ts";
 import { InMemoryTracker } from "../../src/tracker/fake.ts";
+import type { RiskTier } from "../../src/tracker/contract.ts";
 
 type Answer = unknown | Error | "hang";
 
@@ -176,13 +177,17 @@ test("intake reads paths named in the ticket text against the floors", async () 
   assert.equal(a.tier, "high");
 });
 
-test("a human override to low is logged as an override, and a later diff that hits a high floor raises the tier again", async () => {
+/** The record an owner's "raise tier" reply writes (escalation.ts), set directly so the reader can be tested at any tier. */
+async function humanSetsTier(w: { id: string; log: DecisionLog; deps: RiskDeps }, to: RiskTier): Promise<void> {
+  w.log.append(w.id, { run: "run-1", node: null, kind: "override", decision: `risk tier set to ${to} by matteo`, why: "human override of the risk tier", evidence: null, result: "ok", payload: { target: "risk", by: "matteo", value: to } });
+  await w.deps.tracker.setRisk(w.id, to);
+}
+
+test("after a human sets the tier to low, a later diff that hits a high floor raises the tier again", async () => {
   const w = await world(new ScriptedClassifier(says("high"), says("low")));
   assert.equal((await w.assess("intake")).tier, "high");
 
-  await overrideTier(w.deps, { ticket: w.id, run: "run-1", to: "low", by: "matteo" });
-  const override = w.log.read(w.id).find((r) => r.kind === "override")!;
-  assert.deepEqual(override.payload, { target: "risk", by: "matteo", value: "low" });
+  await humanSetsTier(w, "low");
   assert.equal(await w.label(), "low");
 
   const harmless = await w.assess("landing", diff("src/parser.ts"));
@@ -198,7 +203,7 @@ test("a human override to low is logged as an override, and a later diff that hi
 test("a rule floor hit by the actual diff beats an override and asks again", async () => {
   const w = await world();
   await w.assess("intake");
-  await overrideTier(w.deps, { ticket: w.id, run: "run-1", to: "low", by: "matteo" });
+  await humanSetsTier(w, "low");
   const a = await w.assess("landing", diff("db/migrations/002.sql"));
   assert.equal(a.tier, "high");
   assert.equal(a.askAgain, true);
@@ -206,12 +211,6 @@ test("a rule floor hit by the actual diff beats an override and asks again", asy
   const ask = w.log.read(w.id).findLast((r) => r.kind === "ask-point")!;
   assert.equal(ask.payload.handling, "escalated");
   assert.equal(ask.result, "open");
-});
-
-test("an override cannot be made by the runner or an empty name", async () => {
-  const w = await world();
-  await assert.rejects(overrideTier(w.deps, { ticket: w.id, run: "r", to: "low", by: "runner" }), /human/);
-  await assert.rejects(overrideTier(w.deps, { ticket: w.id, run: "r", to: "low", by: "  " }), /human/);
 });
 
 test("an oversized diff is summarised for the judge and assessed at least medium", async () => {

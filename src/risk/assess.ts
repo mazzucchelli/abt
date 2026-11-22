@@ -226,14 +226,3 @@ export async function assessTicket(deps: RiskDeps, req: AssessRequest): Promise<
   const bootstrap = coverage ? await fileBootstrap(deps, { ticket: req.ticket, run: req.run, gaps: coverage.gaps }) : undefined;
   return { tier, floor, moment: req.moment, hits, ...(coverage && { coverage }), ...(bootstrap && { bootstrap }), ...(judged && { judged }), ...(failure && { failure }), summarised, askAgain, reasons };
 }
-
-/** A human sets the ticket's tier, up or down. Logged as theirs; the label follows. */
-export async function overrideTier(deps: Pick<RiskDeps, "log" | "tracker">, o: { ticket: string; run: string; to: RiskTier; by: string; why?: string }): Promise<void> {
-  const by = o.by.trim();
-  if (by === "" || HUMAN_NOT.has(by.toLowerCase())) throw new Error(`a risk override must name the human who made it, not "${o.by}"`);
-  deps.log.append(o.ticket, {
-    run: o.run, node: null, kind: "override", decision: `risk tier set to ${o.to} by ${by}`, why: o.why ?? "human override of the risk tier",
-    evidence: null, result: "ok", payload: { target: "risk", by, value: o.to },
-  });
-  await deps.tracker.setRisk(o.ticket, o.to);
-}

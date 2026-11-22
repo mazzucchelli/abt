@@ -22,7 +22,6 @@ import { selfTestCommand } from "./install/selftest.ts";
 import { retypeAskPoint } from "./retype.ts";
 import { WORK_TYPES, type WorkType } from "./tracker/contract.ts";
 
-const STUBS: string[] = [];
 const USAGE = `usage: abt <command>
 
 commands:
@@ -86,11 +85,6 @@ async function main(argv: string[]): Promise<number> {
   if (command === "upgrade") return upgradeCommand(rest);
 
   if (command === "selftest") return selfTestCommand();
-
-  if (command && STUBS.includes(command)) {
-    console.error(`abt ${command}: not implemented`);
-    return 2;
-  }
 
   console.error(USAGE.trimEnd());
   return 2;

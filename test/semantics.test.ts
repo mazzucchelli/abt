@@ -106,22 +106,26 @@ test("a human override restarts the timeout", async () => {
 
 const cond = async (tree: string, facts: Record<string, boolean>) => {
   const w = await world();
-  for (const [k, v] of Object.entries(facts)) w.codeHost.setCheck(w.id, k as "pr-exists", v);
+  for (const [k, v] of Object.entries(facts)) {
+    if (k === "pr-exists") w.codeHost.setFacts(w.id, { pr: v ? "https://github.com/o/r/pull/1" : undefined });
+    else if (k === "pr-merged") w.codeHost.setFacts(w.id, { merged: v });
+    else w.codeHost.setCheck(w.id, k as "branch-up-to-date", v);
+  }
   return { w, result: (await w.pass(tree)).result };
 };
 
 test("all is ok only when every condition holds, and skips the rest after the first that does not", async () => {
-  const tree = "all:\n  - check: branch-up-to-date\n  - check: required-checks-green\n  - check: trees-valid\n";
-  assert.equal((await cond(tree, { "branch-up-to-date": true, "required-checks-green": true, "trees-valid": true })).result, "ok");
-  const { w, result } = await cond(tree, { "branch-up-to-date": true, "required-checks-green": false });
+  const tree = "all:\n  - check: branch-up-to-date\n  - check: pr-exists\n  - check: pr-merged\n";
+  assert.equal((await cond(tree, { "branch-up-to-date": true, "pr-exists": true, "pr-merged": true })).result, "ok");
+  const { w, result } = await cond(tree, { "branch-up-to-date": true, "pr-exists": false });
   assert.equal(result, "fail");
   assert.deepEqual(w.outcomes(), { root: "fail", "root/0": "ok", "root/1": "fail", "root/2": "skipped" });
 });
 
 test("any is ok when one condition holds, and fails when none does", async () => {
-  const tree = "any:\n  - check: branch-up-to-date\n  - check: required-checks-green\n";
-  assert.equal((await cond(tree, { "branch-up-to-date": false, "required-checks-green": true })).result, "ok");
-  assert.equal((await cond(tree, { "branch-up-to-date": false, "required-checks-green": false })).result, "fail");
+  const tree = "any:\n  - check: branch-up-to-date\n  - check: pr-exists\n";
+  assert.equal((await cond(tree, { "branch-up-to-date": false, "pr-exists": true })).result, "ok");
+  assert.equal((await cond(tree, { "branch-up-to-date": false, "pr-exists": false })).result, "fail");
 });
 
 test("not inverts ok and fail, and passes an unknown fact through as inconclusive", async () => {
@@ -132,9 +136,9 @@ test("not inverts ok and fail, and passes an unknown fact through as inconclusiv
 });
 
 test("conditions nest", async () => {
-  const tree = "all:\n  - not:\n      check: diff-size\n  - any:\n      - check: pr-exists\n      - check: trees-valid\n";
-  assert.equal((await cond(tree, { "diff-size": false, "trees-valid": true })).result, "ok");
-  assert.equal((await cond(tree, { "diff-size": true, "trees-valid": true })).result, "fail");
+  const tree = "all:\n  - not:\n      check: pr-exists\n  - any:\n      - check: branch-up-to-date\n      - check: pr-exists\n";
+  assert.equal((await cond(tree, { "pr-exists": false, "branch-up-to-date": true })).result, "ok");
+  assert.equal((await cond(tree, { "pr-exists": true, "branch-up-to-date": true })).result, "fail");
 });
 
 const BUILD = `
@@ -150,8 +154,8 @@ test("a subtree gets its parameters through with:, and its node IDs stay stable"
   w.harness.script("fixer", { result: "ok" });
   w.harness.script("other", { result: "ok" });
   const trees = new MemoryTrees("trees", { build: BUILD });
-  const use = (agent: string) => `seq:\n  - check: trees-valid\n  - use: build\n    with:\n      agent: ${agent}\n`;
-  w.codeHost.setCheck(w.id, "trees-valid", true);
+  const use = (agent: string) => `seq:\n  - check: branch-up-to-date\n  - use: build\n    with:\n      agent: ${agent}\n`;
+  w.codeHost.setCheck(w.id, "branch-up-to-date", true);
   await w.pass(use("fixer"), { trees });
   const ids = Object.keys(w.outcomes());
   assert.deepEqual(ids.sort(), ["root", "root/0", "root/1", "root/1/0", "root/1/done"].sort());

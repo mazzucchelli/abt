@@ -47,7 +47,6 @@ Precedence: project `CLAUDE.md`, then principles, then generic skill advice. A d
 | `procedures/grilling/SKILL.md` | `mattpocock-skills`@49dd158 skills/productivity/grilling/SKILL.md | adapted | Frontmatter hidden. Fact-finding by sub-agent is optional for a worker. |
 | `procedures/implement/SKILL.md` | `mattpocock-skills`@49dd158 skills/engineering/implement/SKILL.md; `pstack`@0b46ec3 pstack/skills/poteto-mode/playbooks/feature.md | adapted | Frontmatter: `user-invocable: false`. Skill names are `abt:`-prefixed. Added a How section folded from the feature playbook; dropped its throughput checkpoint, persona and delegation (a worker runs alone). |
 | `procedures/pr/SKILL.md` | `mattpocock-skills`@49dd158 skills/engineering/pr/SKILL.md; `pstack`@0b46ec3 pstack/skills/poteto-mode/playbooks/opening-a-pr.md | adapted | Frontmatter hidden, credits metadata dropped. Added Opening it (title convention, stacking, ready not draft) from the opening-a-pr playbook; pstack's body headings not adopted, the Matt template stays. |
-| `procedures/refactoring/SKILL.md` | `pstack`@0b46ec3 pstack/skills/poteto-mode/playbooks/refactoring.md | adapted | New procedure. Playbook body minus pstack machinery (persona, subagent delegation, other pstack skills and principle links); PR step handed to the runner. |
 | `procedures/research/SKILL.md` | `mattpocock-skills`@49dd158 skills/engineering/research/SKILL.md; `pstack`@0b46ec3 pstack/skills/poteto-mode/playbooks/investigation.md | adapted | Frontmatter hidden. Added the no-sub-agent fallback and an Investigations section folded from the investigation playbook (read-only, output outline, no PR). |
 | `procedures/setup-pre-commit/SKILL.md` | `mattpocock-skills`@49dd158 skills/misc/setup-pre-commit/SKILL.md | adapted | Frontmatter hidden. |
 | `procedures/setup-ts-deep-modules/SKILL.md` | `mattpocock-skills`@49dd158 skills/in-progress/setup-ts-deep-modules/SKILL.md | adapted | Frontmatter hidden. `codebase-design` is read as a reference file. |
@@ -78,7 +77,7 @@ pstack's 22 playbooks, read at the pin. One line each: where it went and why.
 - prototype: folded into procedures/spike. Scope one decision, build labelled variants behind a switcher, verify each on its surface, recommend.
 - opening-a-pr: folded into procedures/pr. Title convention, stack follow-ups, open ready not draft; its 40-line body headings are not adopted because the Matt template stays.
 - authoring-a-skill: folded into reference/writing-for-agents.md. Validate frontmatter and links, test structural skills, cut prose that changes no decision.
-- refactoring: shipped as the new procedures/refactoring. Pin behaviour with a characterization test, subtract before adding, move in small green steps, keep only what lowers reader load.
+- refactoring: not shipped. No work type, tree or command reaches it; restorable from git history.
 - autopilot-full: not shipped, runner-owned. One owner per PR, a verifier swarm and merges of proven work are the runner's job.
 - autopilot-stack: not shipped, runner-owned. Stacking dependent PRs and stopping at verified belongs to the runner's landing.
 - babysit: not shipped, runner-owned. Driving a PR's conflicts, reviews and CI to merge-ready is the runner's upkeep.
@@ -108,7 +107,6 @@ Procedures:
 - research: passes after adaptation (no background agent needed).
 - spike: passes; the human review happens on the PR.
 - pr: passes; the worker writes the body, the runner opens the PR.
-- refactoring: passes after adaptation (no delegation; the runner opens the PR).
 - setup-pre-commit: passes; installs need the tree's feedback commands to allow them.
 - setup-ts-deep-modules: passes; the "confirm the packages root" step becomes an ask-point.
 - grilling: passes; every question to the human becomes an ask-point, so a worker gets value only from the fact-finding half.
@@ -122,6 +120,6 @@ Principles: all 19 shipped ones pass; build-the-lever, explain-the-number, prove
 Dropped:
 
 - `principle-never-block-on-the-human`: becomes the ask-point rule (glossary: Ask-point) for the tree and merge-policy design.
-- `principle-guard-the-context-window`, `principle-exhaust-the-design-space`, `principle-outcome-oriented-execution`, `principle-redesign-from-first-principles`, `principle-migrate-callers-then-delete-legacy-apis`: not adopted in the unified table's first pass (orchestration or interactive design advice; the last is covered by the refactoring procedure's step 5).
+- `principle-guard-the-context-window`, `principle-exhaust-the-design-space`, `principle-outcome-oriented-execution`, `principle-redesign-from-first-principles`, `principle-migrate-callers-then-delete-legacy-apis`: not adopted in the unified table's first pass (orchestration or interactive design advice; the last is not covered by a shipped procedure).
 - `codebase-design` DEEPENING.md and DESIGN-IT-TWICE.md: DEEPENING belongs with improve-codebase-architecture (ABT-83); DESIGN-IT-TWICE needs parallel sub-agents.
 - `diagnosing-bugs` `scripts/hitl-loop.template.sh`: a worker has no human at the keyboard.

@@ -11,7 +11,7 @@ id: root
 seq:
   - check: branch-up-to-date
   - fallback:
-      - check: required-checks-green
+      - check: pr-exists
       - action: commit
       - agent: "Fix whatever is failing"
   - retry: 3
@@ -23,11 +23,11 @@ seq:
   - ensure:
       cond:
         all:
-          - check: required-checks-green
+          - check: pr-exists
           - not:
               judge: "Is the diff risky?"
           - any:
-              - check: trees-valid
+              - check: pr-merged
               - judge: "Is the file optional?"
       else:
         action: run-tests
@@ -40,7 +40,7 @@ seq:
 
 test("reports an unknown check with a suggestion", () => {
   assert.deepEqual(messages("check: branch-up-to-dat\n"), [
-    'tree.yaml:1:8 unknown check "branch-up-to-dat" (did you mean "branch-up-to-date"? known: branch-up-to-date, required-checks-green, diff-size, trees-valid, feedback-check, pr-exists, spec-ready, findings-linked, gist-filled, review-auto, pr-merged, ci-check-green, head-sha-unchanged, pr-approved, risk-within-cap)',
+    'tree.yaml:1:8 unknown check "branch-up-to-dat" (did you mean "branch-up-to-date"? known: branch-up-to-date, pr-exists, spec-ready, findings-linked, gist-filled, review-auto, pr-merged, ci-check-green, head-sha-unchanged, pr-approved, risk-within-cap)',
   ]);
 });
 
@@ -67,7 +67,7 @@ test("rejects a non-condition nested inside all/any/not", () => {
 });
 
 test("rejects a non-condition as the guard of a fallback", () => {
-  assert.deepEqual(messages("fallback:\n  - action: x\n  - check: trees-valid\n"), [
+  assert.deepEqual(messages("fallback:\n  - action: x\n  - check: pr-exists\n"), [
     'tree.yaml:2:5 "action" is not a condition (expected check, judge, script, all, any or not)',
   ]);
 });
@@ -79,8 +79,8 @@ test("rejects a bare string as a node", () => {
 });
 
 test("rejects a bare string in a condition slot", () => {
-  assert.deepEqual(messages("ensure:\n  cond: required-checks-green\n  else:\n    action: x\n"), [
-    'tree.yaml:2:9 bare string "required-checks-green" is not allowed here (use check:, judge:, action: or agent:)',
+  assert.deepEqual(messages("ensure:\n  cond: pr-exists\n  else:\n    action: x\n"), [
+    'tree.yaml:2:9 bare string "pr-exists" is not allowed here (use check:, judge:, action: or agent:)',
   ]);
 });
 
@@ -91,16 +91,17 @@ test("rejects unknown nodes and keys, and malformed YAML", () => {
 });
 
 test("does not suggest when nothing is close", () => {
-  assert.deepEqual(messages("check: zzzzzzzzzz\n"), ['tree.yaml:1:8 unknown check "zzzzzzzzzz" (known: branch-up-to-date, required-checks-green, diff-size, trees-valid, feedback-check, pr-exists, spec-ready, findings-linked, gist-filled, review-auto, pr-merged, ci-check-green, head-sha-unchanged, pr-approved, risk-within-cap)']);
+  assert.deepEqual(messages("check: zzzzzzzzzz\n"), ['tree.yaml:1:8 unknown check "zzzzzzzzzz" (known: branch-up-to-date, pr-exists, spec-ready, findings-linked, gist-filled, review-auto, pr-merged, ci-check-green, head-sha-unchanged, pr-approved, risk-within-cap)']);
 });
 
-test("every example tree under docs/ is valid", async () => {
+test("every example and shipped tree is valid", async () => {
   const { readdirSync, readFileSync } = await import("node:fs");
   const { join } = await import("node:path");
-  const files = (readdirSync("docs", { recursive: true }) as string[])
-    .filter((f) => /\.ya?ml$/.test(f) && !/(^|\/)merge-policy\.ya?ml$/.test(f))
-    .map((f) => join("docs", f));
-  assert.ok(files.length > 0, "expected at least one example under docs/");
+  const files = ["docs", "defaults/trees"].flatMap((dir) =>
+    (readdirSync(dir, { recursive: true }) as string[])
+      .filter((f) => /\.ya?ml$/.test(f) && !/(^|\/)merge-policy\.ya?ml$/.test(f))
+      .map((f) => join(dir, f)));
+  assert.ok(files.length > 0, "expected at least one tree under docs/ or defaults/trees/");
   for (const file of files) {
     assert.deepEqual(validate(readFileSync(file, "utf8"), file), [], file);
   }

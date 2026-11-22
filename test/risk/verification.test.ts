@@ -8,7 +8,6 @@ import { policyProblems } from "../../src/landing/policy.ts";
 import { DecisionLog } from "../../src/log/store.ts";
 import { assessTicket } from "../../src/risk/assess.ts";
 import type { CoverageInput } from "../../src/risk/coverage.ts";
-import { evidenceSummary, recordEvidence } from "../../src/risk/evidence.ts";
 import { parseRiskMap } from "../../src/risk/rules.ts";
 import { InMemoryTracker } from "../../src/tracker/fake.ts";
 
@@ -88,19 +87,4 @@ test("touching one more uncovered file later does not refile the first gap", asy
   const boot = (await w.tracker.listByState("Todo")).filter((t) => t.workType === "bootstrap");
   assert.equal(boot.length, 2);
   assert.doesNotMatch(boot[1]!.body, /src\/vat\.ts/);
-});
-
-test("the PR summary links the evidence and the log holds only pointers", async () => {
-  const w = await world();
-  const links = [
-    { label: "CI checks", url: "https://github.com/o/r/pull/9/checks" },
-    { label: "Screenshots", url: "https://github.com/o/r/actions/runs/1/artifacts/2" },
-  ];
-  const md = evidenceSummary(links);
-  assert.match(md, /\[CI checks\]\(https:\/\/github.com\/o\/r\/pull\/9\/checks\)/);
-  recordEvidence(w.log, { ticket: w.id, run: "run-1" }, "https://github.com/o/r/pull/9", links);
-  const rec = w.log.read(w.id).at(-1)!;
-  assert.equal(rec.evidence, "https://github.com/o/r/pull/9");
-  assert.deepEqual(rec.payload.pointers, links.map((l) => l.url));
-  assert.throws(() => recordEvidence(w.log, { ticket: w.id, run: "run-1" }, "https://x.test/pr", [{ label: "pasted", url: "line 1\nline 2 of a log" }]), /pointer/);
 });

@@ -13,6 +13,7 @@
   },
   "scripts": {
     "typecheck": "tsc --noEmit",
+    "reachability": "node --disable-warning=ExperimentalWarning scripts/reachability.ts",
     "build": "tsc -p tsconfig.build.json",
     "test": "node --disable-warning=ExperimentalWarning --test \"test/**/*.test.ts\""
   },

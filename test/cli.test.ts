@@ -16,7 +16,7 @@ test("abt validate exits non-zero and prints file:line:col diagnostics on an inv
   assert.notEqual(r.status, 0);
   assert.equal(
     r.stderr.trim(),
-    'test/fixtures/invalid.yaml:1:8 unknown check "branch-up-to-dat" (did you mean "branch-up-to-date"? known: branch-up-to-date, required-checks-green, diff-size, trees-valid, feedback-check, pr-exists, spec-ready, findings-linked, gist-filled, review-auto, pr-merged, ci-check-green, head-sha-unchanged, pr-approved, risk-within-cap)',
+    'test/fixtures/invalid.yaml:1:8 unknown check "branch-up-to-dat" (did you mean "branch-up-to-date"? known: branch-up-to-date, pr-exists, spec-ready, findings-linked, gist-filled, review-auto, pr-merged, ci-check-green, head-sha-unchanged, pr-approved, risk-within-cap)',
   );
 });
 
@@ -74,7 +74,7 @@ test("abt run evaluates a tree against a fake world, prints the run table and ex
   assert.match(rows[0]!, /^TIME\s+NODE\s+KIND\s+RESULT/);
   assert.match(r.stdout, /2026-03-01T09:00:00.000Z\s+land\/0\s+node-outcome\s+ok\s+action claim/);
   assert.match(r.stdout, /land\/2\s+node-outcome\s+fail\s+check branch-up-to-date/);
-  assert.match(r.stdout, /land\/1\/0\s+node-outcome\s+ok\s+check required-checks-green/);
+  assert.match(r.stdout, /land\/1\/0\s+node-outcome\s+ok\s+check pr-exists/);
   assert.match(rows.at(-1)!, /^pass \S+: fail$/);
 });
 

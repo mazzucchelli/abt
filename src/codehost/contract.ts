@@ -2,10 +2,6 @@
 
 export const CHECK_NAMES = [
   "branch-up-to-date",
-  "required-checks-green",
-  "diff-size",
-  "trees-valid",
-  "feedback-check",
   "pr-exists",
   "pr-merged",
   "ci-check-green",
