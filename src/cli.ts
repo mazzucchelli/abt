@@ -135,6 +135,11 @@ function logCommand(args: string[]): number {
         console.error(`abt: ${denied}`);
         return 1;
       }
+      // A worker's records belong to the pass and node it was dispatched for, whatever the record says.
+      if (process.env.ABT_ROLE === "worker") {
+        if (process.env.ABT_RUN) input.run = process.env.ABT_RUN;
+        if (process.env.ABT_NODE) input.node = process.env.ABT_NODE;
+      }
       console.log(log.append(ticket, input).id);
       return 0;
     }

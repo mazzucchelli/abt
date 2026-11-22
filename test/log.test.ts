@@ -151,9 +151,12 @@ test("a worker may send raisesTo with its open ask-point", () => {
   const r = spawnSync("bin/abt", ["log", "append", "T-1"], {
     encoding: "utf8",
     input: JSON.stringify(nodeOutcome({ kind: "ask-point", decision: "d", result: "open", payload: { question: "q", recommended: "r", reversible: true, raisesTo: "high" } })),
-    env: { ...process.env, ABT_HOME: home, ABT_ROLE: "worker", ABT_TICKET: "T-1" },
+    env: { ...process.env, ABT_HOME: home, ABT_ROLE: "worker", ABT_TICKET: "T-1", ABT_RUN: "run-9", ABT_NODE: "implement/2/0" },
   });
   assert.equal(r.status, 0, r.stderr);
+  const written = JSON.parse(readFileSync(file("T-1"), "utf8").trim());
+  assert.equal(written.node, "implement/2/0", "the record is stamped with the node the worker was dispatched for");
+  assert.equal(written.run, "run-9");
 });
 
 test("a worker cannot settle its own ask-point: handling or a non-open result is refused", () => {
