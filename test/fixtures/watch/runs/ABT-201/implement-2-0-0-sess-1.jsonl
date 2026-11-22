@@ -1,0 +1,2 @@
+{"type":"system","subtype":"init","session_id":"sess-1","abt_ts":"2026-11-22T09:05:00.000Z"}
+{"type":"result","subtype":"error_during_execution","is_error":true,"total_cost_usd":0.48,"usage":{"input_tokens":100000,"output_tokens":31000},"abt_ts":"2026-11-22T09:17:00.000Z"}

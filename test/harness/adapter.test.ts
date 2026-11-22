@@ -155,3 +155,28 @@ test("a worker runs under settings with the Stop hook, the guard and its feedbac
   assert.equal(env.ABT_TICKET, "ABT-9");
   assert.ok(env.ABT_HOOK_STATE!.startsWith(profile.runsDir));
 });
+
+test("the transcript is written line by line while the worker runs, each line stamped, so a watcher sees live activity", async () => {
+  const { dir, profile } = setup({ stdout: "" });
+  const seen: string[] = [];
+  const adapter = new ClaudeCodeAdapter({
+    profile,
+    spawn: async (_spec, onStdout) => {
+      const full = init() + line({ type: "assistant", message: { content: [{ type: "tool_use", name: "Edit", input: { file_path: "a.ts", note: TOKEN } }] } }) + result();
+      const cut = full.indexOf("tool_use") + 3; // the first chunk ends mid-line, mid-token
+      onStdout!(full.slice(0, cut));
+      seen.push(readFileSync(join(profile.runsDir, "ABT-9", `n1-${SESSION}.jsonl`), "utf8"));
+      onStdout!(full.slice(cut));
+      seen.push(readFileSync(join(profile.runsDir, "ABT-9", `n1-${SESSION}.jsonl`), "utf8"));
+      return { exitCode: 0, stderr: "", stdout: full };
+    },
+    readToken: () => TOKEN, hostEnv: { PATH: "/usr/bin" }, newId: () => SESSION, ready: async () => {},
+    now: () => new Date("2026-11-22T09:00:00.000Z"),
+  });
+  const out = await adapter.run({ procedure: "tdd", prompt: "x", worktree: dir, model: "claude-sonnet-5-5", effort: "medium", feedback: { commands: [] }, ticket: "ABT-9", node: "n1" });
+  assert.equal(seen[0]!.split("\n").filter(Boolean).length, 1, "only complete lines are written");
+  assert.equal(seen[1]!.split("\n").filter(Boolean).length, 3);
+  const final = readFileSync(out.transcriptPath, "utf8");
+  assert.ok(final.split("\n").filter(Boolean).every((l) => JSON.parse(l).abt_ts === "2026-11-22T09:00:00.000Z"));
+  assert.ok(!final.includes(TOKEN));
+});
