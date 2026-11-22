@@ -1,7 +1,7 @@
 import { runPass, type PassDeps } from "./pass.ts";
 import { treeViolations } from "./invariants.ts";
 import type { LandingGuard } from "./landing/guard.ts";
-import { loadPolicy, projectLock, sha256, type PolicyStore } from "./landing/policy.ts";
+import { loadPolicy, projectLock, riskMapOf, sha256, type PolicyStore } from "./landing/policy.ts";
 import type { DecisionRecord, Result } from "./log/record.ts";
 import { assessTicket, effectiveTier, type RiskDeps } from "./risk/assess.ts";
 import { tierFor } from "./routing.ts";
@@ -31,6 +31,11 @@ export interface TicketRunDeps extends Omit<PassDeps, "tree" | "run" | "file"> {
   risk?: Pick<RiskDeps, "classifier" | "map" | "timeoutMs" | "minConfidence" | "maxPatchChars">;
   /** The project's merge policy, read from its default branch. Without one abt never merges. */
   policy?: PolicyStore;
+  /**
+   * Where the risk map is read from when `policy` is not wired: the map alone, so landing stays off. The runner sets
+   * this one; without either, the default risk map applies.
+   */
+  riskPolicy?: PolicyStore;
   /**
    * The project's pins, kept outside the repo. With them a protected file that no longer matches its pin holds every
    * ticket in Needs you, and no merge happens until the files are pinned (the owner merged the onboarding PR by hand).
@@ -126,6 +131,7 @@ export async function runTicket(deps: TicketRunDeps): Promise<TicketRunResult> {
   }
   // The ticket is being worked (again): a worktree kept from a failed run is no longer on the clock.
   await workspace.unkeep(ticket);
+  deps = await withAgreedRiskMap(deps);
   const pass = (name: Name) => runPass({ ...deps, run, trees, tree: sources[name].source, file: sources[name].file });
 
   await assessOnce(deps, run);
@@ -218,6 +224,21 @@ async function runLanding(deps: TicketRunDeps, run: string, pin?: PinCheck): Pro
   }
   // Waiting on CI or an approval, or the checks failed: the PR stays open and the next poll lands it from the facts.
   return { run, result: r.result, terminal: false };
+}
+
+/**
+ * The risk map the owner agreed to, read once from the policy and handed to assessment and routing.
+ * Without an agreed policy there is no map and the defaults apply; a map wired in by hand wins.
+ */
+async function withAgreedRiskMap(deps: TicketRunDeps): Promise<TicketRunDeps> {
+  const agreed = await loadPolicy(deps.riskPolicy ?? deps.policy).catch(() => undefined);
+  if (agreed?.status !== "agreed") return deps;
+  const map = riskMapOf(agreed.policy.risk_map);
+  return {
+    ...deps,
+    ...(deps.risk && { risk: { ...deps.risk, map: deps.risk.map ?? map } }),
+    ...(deps.routing && { routing: { ...deps.routing, map: deps.routing.map ?? map } }),
+  };
 }
 
 /** Risk is assessed once per ticket, at intake. */
