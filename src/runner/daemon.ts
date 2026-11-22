@@ -19,6 +19,7 @@ import { updateOpenBranches } from "../upkeep.ts";
 import { pendingRetype } from "../retype.ts";
 import type { Workspace } from "../workspace/contract.ts";
 import type { WorkerEnvs } from "../workspace/env.ts";
+import type { LandingGuard } from "../landing/guard.ts";
 import type { Notifier } from "../notify/contract.ts";
 import { LIFECYCLE_STATES, type LifecycleState } from "../tracker/contract.ts";
 
@@ -43,6 +44,8 @@ export interface RunnerProject {
   prValidator?: PrValidator;
   /** Pins the project's abt files once its onboarding PR is merged by hand. Called on every scan; does nothing when none is pending. */
   onboarding?: { settle(): Promise<unknown> };
+  /** Re-probes the project's facts when the runner starts and watches the default branch after autonomous merges. */
+  guard?: LandingGuard;
   /** The project's worker worktrees. With it the runner sweeps them at start and on each scan; without it none are touched. */
   workspace?: Workspace;
   /** Frees a removed worktree's ports, database and build output lane. */
@@ -127,6 +130,7 @@ export class Runner {
       await this.#recover();
       await this.#sweepWorktrees();
       await this.#selfTest();
+      await this.#guardStart();
       this.#stops.push(this.#d.workers.onExit((ticket) => this.#track(this.nudge(ticket).then(() => undefined), "worker exit")));
       this.#stops.push(this.#d.timers.every(HEARTBEAT_MS, () => this.#lock.heartbeat()));
       this.#stops.push(this.#d.timers.every(POLL_MS, () => this.#track(this.#poll(), "poll")));
@@ -209,6 +213,11 @@ export class Runner {
         await project.onboarding?.settle();
       } catch (e) {
         this.#error(e, `onboarding for ${project.name}`);
+      }
+      try {
+        await project.guard?.watch();
+      } catch (e) {
+        this.#error(e, `post-merge watch for ${project.name}`);
       }
     }
     await this.#sweepWorktrees();
@@ -332,6 +341,17 @@ export class Runner {
       );
     } catch (e) {
       this.#error(e, `branch upkeep after ${project.name}:${ticket}`);
+    }
+  }
+
+  /** A drift while the runner was down pauses merging before any ticket can land; a failed probe is logged and the next merge probes again. */
+  async #guardStart(): Promise<void> {
+    for (const project of this.#d.projects) {
+      try {
+        await project.guard?.start();
+      } catch (e) {
+        this.#error(e, `drift probe for ${project.name}`);
+      }
     }
   }
 

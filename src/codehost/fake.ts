@@ -1,7 +1,7 @@
-import { HeadMovedError, type CheckName, type CodeHost, type CodeHostFacts, type CommitStatus, type OpenPr, type PrHost } from "./contract.ts";
+import { HeadMovedError, type CheckName, type CodeHost, type CodeHostFacts, type CommitStatus, type JobResult, type MainHost, type OpenPr, type PrHost } from "./contract.ts";
 
 /** In-memory CodeHost for tests. Facts are set from outside; writes change them. */
-export class FakeCodeHost implements CodeHost, PrHost {
+export class FakeCodeHost implements CodeHost, PrHost, MainHost {
   #facts = new Map<string, CodeHostFacts>();
   #prs: { pr: OpenPr; contents: Record<string, string> }[] = [];
   /** Test hooks: run just before facts are read, and just before a merge is attempted. */
@@ -66,12 +66,37 @@ export class FakeCodeHost implements CodeHost, PrHost {
     this.closed.push(ticket);
   }
 
-  async merge(ticket: string, opts: { matchHeadSha: string }): Promise<void> {
+  /** CI on the default branch, by merge commit; set from outside. */
+  readonly #main = new Map<string, Record<string, JobResult>>();
+  /** Every revert PR opened, never merged. */
+  readonly reverts: { sha: string; title: string; body: string; url: string }[] = [];
+
+  /** The merge commit abt's merge of a PR made, for the PR's head SHA. */
+  static mergeShaOf(headSha: string): string {
+    return `merge-of-${headSha}`;
+  }
+
+  setMainJob(sha: string, job: string, state: JobResult["state"]): void {
+    this.#main.set(sha, { ...this.#main.get(sha), [job]: { state, sha } });
+  }
+
+  async mainJobs(sha: string): Promise<Record<string, JobResult>> {
+    return structuredClone(this.#main.get(sha) ?? {});
+  }
+
+  async openRevertPr(sha: string, pr: { title: string; body: string }): Promise<string> {
+    const url = `https://fake.host/revert/${this.reverts.length + 1}`;
+    this.reverts.push({ sha, ...pr, url });
+    return url;
+  }
+
+  async merge(ticket: string, opts: { matchHeadSha: string }): Promise<string> {
     this.beforeMerge?.(ticket);
     const f = this.#get(ticket);
     if (f.headSha !== opts.matchHeadSha) throw new HeadMovedError(`head is ${f.headSha ?? "unknown"}, not ${opts.matchHeadSha}`);
     f.merged = true;
     this.merges.push({ ticket, sha: opts.matchHeadSha });
+    return FakeCodeHost.mergeShaOf(opts.matchHeadSha);
   }
 
   #get(ticket: string): CodeHostFacts {

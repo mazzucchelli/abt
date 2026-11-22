@@ -20,6 +20,7 @@
         "retype",
         "escalation",
         "merge",
+        "probe",
         "pivot",
         "blocked",
         "note"
@@ -207,6 +208,7 @@
             "properties": {
               "pr": { "type": "string", "minLength": 1 },
               "sha": { "type": "string", "minLength": 1 },
+              "merge_sha": { "type": "string", "minLength": 1 },
               "policy_hash": { "type": "string", "minLength": 1 },
               "tree_hash": { "type": "string", "minLength": 1 }
             },

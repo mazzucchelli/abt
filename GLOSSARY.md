@@ -42,13 +42,17 @@ Domain terms for the AI workflow. Definitions only, no implementation detail.
 
 **Onboarding**: The conversation in which the workflow first meets a project: it probes the project's facts, proposes a preset and a risk map, and ends with the human agreeing to a merge policy. Until then the project is pr-only.
 
-**Facts snapshot**: The probed project facts (enforcement, required checks, writers, CI jobs, test tooling) that a merge policy was agreed against.
+**Facts snapshot**: The probed project facts (enforcement, required checks, writers, CI jobs, test tooling) that a merge policy was agreed against. Its cheap facts are also recorded in the policy's `facts`, which is what drift is measured against.
+
+**Cheap facts**: The project facts that cost one host API read each (default branch, visibility, branch protection, auto-merge, write collaborators and apps). The runner re-probes them before every autonomous merge and when it starts; the slower ones (CI jobs, test tooling) are only probed at onboarding.
 
 **Hand merge**: The owner merging the onboarding PR, or a later change to a protected file, themselves. The runner never merges these. A hand merge of the onboarding PR is what moves the project off pr-only: the runner then records the pins.
 
-**Policy drift**: A re-probe that no longer matches the facts snapshot. It pauses autonomous merge in that project until the human re-agrees; the workflow never adapts silently.
+**Policy drift**: A re-probe that no longer matches the facts snapshot. The runner re-probes the cheap facts and checks the pins before every autonomous merge and when it starts. Drift pauses autonomous merge in that project and opens Needs you with the diff; merging resumes only once the human has dealt with that ticket, and drift that is still there pauses it again, so the human re-agrees the policy or undoes the change. The workflow never adapts silently.
 
 **Self-run enforcement**: The runner, not the code host, enforcing a merge policy's gates, backed by compensating controls (sole merger, head-SHA re-check, post-merge watch of the default branch).
+
+**Post-merge watch**: After an autonomous merge the runner watches the required jobs on the merge commit on the default branch. A red one pauses the project's merges and opens Needs you with the merge SHA, the failing job and a revert PR that abt opens and never merges.
 
 **Verification**: Evidence, gathered by the agent, that a change works: tests, e2e, visual regression, screenshots of the running app, and CI.
 
@@ -94,7 +98,7 @@ Domain terms for the AI workflow. Definitions only, no implementation detail.
 
 **Ask-point**: A moment where an agent would ask the human: the question, its recommended answer, the evidence, and whether the choice is reversible. The risk tier decides whether it is decided and logged or escalated. A worker never blocks on the human: it records the ask-point open, without a handling, and hands back.
 
-**Decision record**: One entry stating a single decision or outcome in a ticket's run (a tree node's result, a risk assessment, a routing choice, an ask-point, an override, a retype, an escalation, a merge, a pivot, or a note), why it was made, and a pointer to its evidence. Never edited; a wrong record is corrected by a later one that supersedes it.
+**Decision record**: One entry stating a single decision or outcome in a ticket's run (a tree node's result, a risk assessment, a routing choice, an ask-point, an override, a retype, an escalation, a merge, a probe, a pivot, or a note), why it was made, and a pointer to its evidence. Never edited; a wrong record is corrected by a later one that supersedes it.
 
 **Decision log**: The append-only sequence of a ticket's decision records, read live and in post-hoc review. Reviewing it is how the human audits a run; there is no separate audit trail.
 

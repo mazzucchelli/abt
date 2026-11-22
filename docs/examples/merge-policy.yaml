@@ -28,9 +28,16 @@ risk_map:
   max_lines: 400
   max_files: 15
 # A snapshot of the project when this policy was agreed.
+# Onboarding records the cheap facts here; the runner re-probes each one before every merge and when it starts, and any
+# difference pauses merging for the project and opens Needs you with the diff. A fact left out is not compared.
 facts:
   default_branch: main
   captured_at: "2026-11-20T00:00:00Z"
+  visibility: private
+  protection: { enforced: false, required_checks: [], approvals: 0 }
+  allow_auto_merge: false
+  write_collaborators: [me]
+  write_apps: []
 # sha256 of defaults/trees/land.yaml, or of the project's own .agents/abt/trees/land.yaml. A different land tree blocks merging.
 # Compute it with: shasum -a 256 <land.yaml>
 land_tree_hash: 17e8c1ec30c40a4a75baf77355ae2dd71c6e8a3a2dcf1d0b30283d7e75b6f933

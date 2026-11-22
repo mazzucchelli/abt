@@ -80,6 +80,7 @@ test("a low ticket with green can-merge on its head SHA merges with no human; th
   assert.deepEqual(merge[0]!.payload, {
     pr: `https://fake.host/${w.id}/pr/1`,
     sha: "abc123",
+    merge_sha: "merge-of-abc123",
     policy_hash: sha256(policyFile()),
     tree_hash: sha256(landSource),
   });
