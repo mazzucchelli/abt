@@ -97,14 +97,14 @@ export const DEFAULT_MAX_PATCH_CHARS = 60_000;
 
 export const HUMAN_NOT = new Set(["runner", "agent", "worker", "judge", "classifier", "abt"]);
 
+const isRiskTier = (x: unknown): x is RiskTier => RISK_TIERS.some((t) => t === x);
+
 /** The ticket's tier as the log last left it: an assessment sets it, a human override resets it. */
 export function effectiveTier(records: DecisionRecord[]): { tier: RiskTier; by: "assessment" | "override" } | undefined {
   let out: { tier: RiskTier; by: "assessment" | "override" } | undefined;
   for (const r of records) {
-    if (r.kind === "risk-assessment") out = { tier: r.payload.tier as RiskTier, by: "assessment" };
-    else if (r.kind === "override" && r.payload.target === "risk" && RISK_TIERS.includes(r.payload.value as RiskTier)) {
-      out = { tier: r.payload.value as RiskTier, by: "override" };
-    }
+    if (r.kind === "risk-assessment") out = { tier: r.payload.tier, by: "assessment" };
+    else if (r.kind === "override" && r.payload.target === "risk" && isRiskTier(r.payload.value)) out = { tier: r.payload.value, by: "override" };
   }
   return out;
 }
@@ -210,6 +210,7 @@ export async function assessTicket(deps: RiskDeps, req: AssessRequest): Promise<
     payload: {
       tier, floor, moment: req.moment, reasons,
       ...(judged && { judged }), ...(failure && { failure }), ...(summarised && { summarised }), ...(askAgain && { askAgain }),
+      ...(hits.some((h) => h.evidenceGap) && { evidenceGap: true }),
       // The type the ticket entered its run with: a later retype is a change from it.
       ...(req.moment === "intake" && ticket.workType && { workType: ticket.workType }),
     },

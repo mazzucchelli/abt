@@ -1,4 +1,4 @@
-import type { DecisionRecord } from "./log/record.ts";
+import { ofKind, type DecisionRecord } from "./log/record.ts";
 import type { DecisionLog } from "./log/store.ts";
 import type { Notifier } from "./notify/contract.ts";
 import { effectiveTier } from "./risk/assess.ts";
@@ -87,13 +87,13 @@ export async function postAskPoint(tracker: Tracker, ticket: string, a: AskPoint
  */
 export async function escalate(
   deps: EscalationDeps,
-  req: { ticket: string; run: string; node: string | null; askPoint: AskPoint; reason: string },
+  req: { ticket: string; run: string; node: string | null; askPoint: AskPoint; reason: string; /** The ask is the owner's approval of the spec. */ specApproval?: boolean },
 ): Promise<void> {
   const { tracker, log, notifier } = deps;
   const { ticket, askPoint: a } = req;
   log.append(ticket, {
     run: req.run, node: req.node, kind: "escalation", decision: "ticket sent to Needs you", why: req.reason, evidence: a.evidence, result: "fail",
-    payload: { reason: req.reason, needs: "an answer to the ask-point", question: a.question, recommended: a.recommended, reversible: a.reversible },
+    payload: { reason: req.reason, needs: "an answer to the ask-point", question: a.question, recommended: a.recommended, reversible: a.reversible, ...(req.specApproval && { specApproval: true }) },
   });
   await postAskPoint(tracker, ticket, a);
   await tracker.setState(ticket, "Needs you");
@@ -147,7 +147,7 @@ export async function resumeFromReplies(
   const t = await tracker.readTicket(ticket);
   const comments = (await tracker.readCommentsSince(ticket)).comments;
   const lastAbt = comments.findLastIndex((c) => c.kind !== REPLY_KIND);
-  const handled = new Set(log.read(ticket).flatMap((r) => (typeof r.payload.comment === "string" ? [r.payload.comment] : [])));
+  const handled = new Set(log.read(ticket).flatMap((r) => ((r.kind === "override" || r.kind === "note") && r.payload.comment !== undefined ? [r.payload.comment] : [])));
   const recommended = log.read(ticket).findLast((r) => r.kind === "escalation")?.payload.recommended;
 
   for (const c of comments.slice(lastAbt + 1)) {
@@ -217,7 +217,7 @@ export async function resumeFromReplies(
  */
 export function decidedAskPointsSection(records: DecisionRecord[]): string {
   if (effectiveTier(records)?.tier !== "medium") return "";
-  const decided = records.filter((r) => r.kind === "ask-point" && r.payload.handling === "decided");
+  const decided = ofKind(records, "ask-point").filter((r) => r.payload.handling === "decided");
   if (decided.length === 0) return "";
-  return ["## Ask-points decided without you", ...decided.map((r) => `- ${String(r.payload.question)} Decided: ${String(r.payload.recommended)}`)].join("\n");
+  return ["## Ask-points decided without you", ...decided.map((r) => `- ${r.payload.question} Decided: ${r.payload.recommended}`)].join("\n");
 }

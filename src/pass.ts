@@ -6,7 +6,7 @@ import { effectiveTier } from "./risk/assess.ts";
 import { RISK_TIERS } from "./tracker/contract.ts";
 import type { FeedbackConfig, HarnessAdapter, UsageLimit } from "./harness/contract.ts";
 import type { Judge } from "./judge/contract.ts";
-import type { DecisionRecord, Result } from "./log/record.ts";
+import { ofKind, type DecisionRecord, type NodeOutcomePayload, type NodeOutcomeRecord, type Result } from "./log/record.ts";
 import type { DecisionLog } from "./log/store.ts";
 import { parseTree, type TreeNode } from "./tree.ts";
 import type { TreeStore } from "./trees.ts";
@@ -73,14 +73,10 @@ export interface PassResult {
   result: Result;
 }
 
-interface Outcome {
+interface Outcome extends Pick<NodeOutcomePayload, "worker" | "usageLimit" | "headSha" | "specRefused" | "branch"> {
   result: Result;
   why: string;
   evidence?: string;
-  worker?: string;
-  usageLimit?: UsageLimit;
-  /** The PR head a landing check or merge was about. */
-  headSha?: string;
 }
 
 /**
@@ -258,8 +254,9 @@ class Pass {
         if (!t.claimed && !(await tracker.claim(ticket))) {
           return { result: "fail", why: `not claimable in state ${t.state}` };
         }
-        const path = await workspace.ensure(ticket, branchFor(t, this.#d.log.read(ticket)));
-        return { result: "ok", why: t.claimed ? "already claimed" : "claimed", evidence: path };
+        const branch = branchFor(t, this.#d.log.read(ticket));
+        const path = await workspace.ensure(ticket, branch);
+        return { result: "ok", why: t.claimed ? "already claimed" : "claimed", evidence: path, branch };
       }
       case "claim-no-worktree": {
         // Work that touches no repository (research) is claimed without a branch or worktree.
@@ -312,8 +309,8 @@ class Pass {
   }
 
   /** The latest green `ci-check-green` outcome of this run, which names the head SHA the checks were verified on. */
-  #greenCheck(): DecisionRecord | undefined {
-    return this.#d.log.read(this.#d.ticket).findLast((r) => r.run === this.#run && r.payload.nodeKind === "check" && r.decision === "check ci-check-green" && r.result === "ok");
+  #greenCheck(): NodeOutcomeRecord | undefined {
+    return ofKind(this.#d.log.read(this.#d.ticket), "node-outcome").findLast((r) => r.run === this.#run && r.payload.nodeKind === "check" && r.payload.name === "ci-check-green" && r.result === "ok");
   }
 
   /** Landing checks. Undefined for any other check. Without an agreed policy they are inconclusive: nothing lands. */
@@ -345,7 +342,7 @@ class Pass {
     // head-sha-unchanged: the head must still be the commit the checks were verified on in this run.
     const checked = this.#greenCheck();
     const sha = checked?.payload.headSha;
-    if (typeof sha !== "string") return { result: "inconclusive", why: "no green check recorded in this run to compare the head with" };
+    if (sha === undefined) return { result: "inconclusive", why: "no green check recorded in this run to compare the head with" };
     return facts.headSha === sha
       ? { result: "ok", why: `head is still ${sha}`, headSha: sha }
       : { result: "fail", why: `head moved from ${sha} to ${facts.headSha ?? "unknown"} since the checks ran` };
@@ -478,7 +475,7 @@ class Pass {
     // waiting on a human, must not get a different answer). A worker running since makes it new work.
     const records = this.#d.log.read(ticket);
     const since = records.findLastIndex((r) => r.kind === "node-outcome" && r.payload.nodeKind === "agent");
-    const passed = records.slice(since + 1).find((r) => r.kind === "node-outcome" && r.payload.nodeKind === "judge" && r.decision === `judge ${node.name}` && r.result === "ok");
+    const passed = records.slice(since + 1).find((r) => r.kind === "node-outcome" && r.payload.nodeKind === "judge" && r.payload.name === node.name && r.result === "ok");
     if (passed) return { result: "ok", why: `already judged: ${passed.why}` };
     if (!judge) return { result: "error", why: `judge "${node.name}": no judge is configured` };
     try {
@@ -502,7 +499,7 @@ class Pass {
     if (specSkipLogged(records)) return { result: "ok", why: "spec skipped earlier: the ticket body is the spec" };
 
     const tier = effectiveTier(records)?.tier ?? t.risk ?? "medium";
-    const covered = !records.some((r) => r.kind === "risk-assessment" && Array.isArray(r.payload.reasons) && r.payload.reasons.some((x) => /evidence gap/.test(String(x))));
+    const covered = !ofKind(records, "risk-assessment").some((r) => r.payload.evidenceGap === true);
     if (tier === "low" && covered) {
       const route = await routeWorker(this.#d.routing ?? {}, { ticket: t, records });
       if (route.grade !== "hard") {
@@ -517,7 +514,7 @@ class Pass {
     const link = t.links.find((l) => l.title === SPEC_LINK);
     if (!spec || !link) return { result: "fail", why: `no spec yet: ${!spec ? `no "${SPEC_COMMENT}" comment` : `no link titled "${SPEC_LINK}"`} on the ticket` };
     const verdict = validateSpec(spec.body);
-    if (verdict.refused.length > 0) return { result: "fail", why: `spec refused: ${verdict.refused.join("; ")}`, evidence: link.url };
+    if (verdict.refused.length > 0) return { result: "fail", why: `spec refused: ${verdict.refused.join("; ")}`, evidence: link.url, specRefused: true };
 
     if (verdict.gaps.length > 0) {
       const bootstrap = await fileBootstrap(
@@ -530,7 +527,7 @@ class Pass {
         const why = `evidence gap: ${verdict.gaps.length} criterion(s) marked gap; at least medium`;
         log.append(ticket, {
           run: this.#run, node: null, kind: "risk-assessment", decision: `risk tier ${lifted} at intake`, why, evidence: link.url, result: "ok",
-          payload: { tier: lifted, floor: lifted, moment: "intake", reasons: [why] },
+          payload: { tier: lifted, floor: lifted, moment: "intake", reasons: [why], evidenceGap: true },
         });
         await tracker.setRisk(ticket, lifted);
       }
@@ -557,7 +554,7 @@ class Pass {
     await escalateAskPoint(
       { tracker, log, ...(this.#d.notifier && { notifier: this.#d.notifier }) },
       {
-        ticket, run: this.#run, node: null, reason: "high risk: the owner approves the spec before implementation starts",
+        ticket, run: this.#run, node: null, reason: "high risk: the owner approves the spec before implementation starts", specApproval: true,
         askPoint: { question, recommended: "yes: approve the spec and start implementing", evidence: link?.url ?? log.path(ticket), reversible: true },
       },
     );
@@ -566,8 +563,8 @@ class Pass {
 
   /** Why the latest spec was refused, while the spec worker is still the next one to run: it must fix exactly that. */
   #specBrief(): string {
-    const refusal = this.#d.log.read(this.#d.ticket).findLast((r) => r.kind === "node-outcome" && r.payload.nodeKind === "check" && r.decision === "check spec-ready" && r.result === "fail");
-    const redo = refusal && /^spec refused/.test(refusal.why) ? `\nThe runner refused your previous spec: ${refusal.why}\nFix exactly that and publish the spec again.` : "";
+    const refusal = ofKind(this.#d.log.read(this.#d.ticket), "node-outcome").findLast((r) => r.payload.nodeKind === "check" && r.payload.name === "spec-ready" && r.result === "fail");
+    const redo = refusal?.payload.specRefused ? `\nThe runner refused your previous spec: ${refusal.why}\nFix exactly that and publish the spec again.` : "";
     return SPEC_BRIEF + redo;
   }
 
@@ -589,17 +586,16 @@ class Pass {
     const records = this.#d.log.read(this.#d.ticket);
     const at = records.findLastIndex((r) => r.kind === "override" && r.payload.target === "escalation");
     if (at < 0 || records.slice(at + 1).some((r) => r.kind === "escalation" || (r.kind === "override" && r.payload.target === "run"))) return undefined;
-    const v = records[at]!.payload.value;
-    const answer = typeof v === "object" && v !== null ? (v as { answer?: unknown }).answer : undefined;
-    return typeof answer === "string" ? answer : undefined;
+    const answered = records[at];
+    const v = answered?.kind === "override" ? answered.payload.value : undefined;
+    return typeof v === "object" && v !== null && "answer" in v && typeof v.answer === "string" ? v.answer : undefined;
   }
 
   /** The worker handle from this node's latest non-superseded outcome, if that worker was still running. */
   #runningWorker(node: string): string | undefined {
     const superseded = new Set(this.#history.flatMap((r) => (r.supersedes ? [r.supersedes] : [])));
-    const last = this.#history.findLast((r) => r.kind === "node-outcome" && r.node === node && !superseded.has(r.id));
-    const worker = last?.payload.worker;
-    return last?.result === "running" && typeof worker === "string" ? worker : undefined;
+    const last = ofKind(this.#history, "node-outcome").findLast((r) => r.node === node && !superseded.has(r.id));
+    return last?.result === "running" ? last.payload.worker : undefined;
   }
 
   #record(node: TreeNode, decision: string, o: Outcome): void {
@@ -611,7 +607,7 @@ class Pass {
       why: o.why,
       evidence: o.evidence ?? null,
       result: o.result,
-      payload: { nodeKind: node.kind, ...(o.worker && { worker: o.worker }), ...(o.headSha && { headSha: o.headSha }), ...(o.usageLimit && { usageLimit: o.usageLimit }) },
+      payload: { nodeKind: node.kind, ...("name" in node && { name: node.name }), ...(o.specRefused && { specRefused: true }), ...(o.branch && { branch: o.branch }), ...(o.worker && { worker: o.worker }), ...(o.headSha && { headSha: o.headSha }), ...(o.usageLimit && { usageLimit: o.usageLimit }) },
     });
   }
 }

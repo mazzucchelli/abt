@@ -1,3 +1,5 @@
+import { ofKind, type DecisionRecord } from "../log/record.ts";
+
 const TYPES = ["feat", "fix", "docs", "refactor", "test", "chore", "perf", "build", "ci", "style", "revert"];
 const MAX_SLUG = 40;
 const PREFIX = new RegExp(`^(${TYPES.join("|")})(\\([^)]*\\))?!?:\\s*`, "i");
@@ -20,8 +22,8 @@ export function branchName(ticket: { id: string; title: string }): string {
  * The branch a ticket's next worker starts on: its usual name, or that name with a number when a retype
  * already kept a worker's branch under it, so a fresh start never reuses an old branch.
  */
-export function branchFor(ticket: { id: string; title: string }, records: { kind: string; payload: Record<string, unknown> }[]): string {
-  const kept = new Set(records.flatMap((r) => (r.kind === "retype" && typeof r.payload.branch === "string" ? [r.payload.branch] : [])));
+export function branchFor(ticket: { id: string; title: string }, records: readonly DecisionRecord[]): string {
+  const kept = new Set(ofKind(records, "retype").flatMap((r) => (r.payload.branch === undefined ? [] : [r.payload.branch])));
   const base = branchName(ticket);
   let name = base;
   for (let n = 2; kept.has(name); n++) name = `${base}-${n}`;

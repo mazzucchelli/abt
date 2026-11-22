@@ -5,12 +5,15 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { FakeClock } from "../src/clock.ts";
 import { DecisionLog } from "../src/log/store.ts";
-import type { RecordInput } from "../src/log/record.ts";
+import type { RecordCommon, RecordInput } from "../src/log/record.ts";
 import { overrideGrade, routeWorker, type GradeClassifier, type GradeJudgement } from "../src/routing.ts";
 import type { RiskTier, Ticket } from "../src/tracker/contract.ts";
 
 const SONNET = "claude-sonnet-5-5";
 const OPUS = "claude-opus-5-5";
+
+/** A record input with the boilerplate fields optional. */
+type Loose<R> = R extends unknown ? Omit<R, "run" | "node" | "decision" | "why" | "evidence" | "result"> & Partial<Pick<RecordCommon, "run" | "node" | "decision" | "why" | "evidence" | "result">> : never;
 
 function setup() {
   let n = 0;
@@ -19,8 +22,8 @@ function setup() {
     id: "ABT-1", title: "Add a thing", body: "- [ ] it works\n- [ ] it is tested\n\nTouches src/risk/a.ts", state: "In progress",
     abt: true, claimed: true, links: [], priority: 0, createdAt: "2026-01-01T00:00:00Z", blockedBy: [], owner: "owner", url: "https://t/ABT-1", ...over,
   });
-  const append = (r: Partial<RecordInput> & Pick<RecordInput, "kind" | "payload">) =>
-    log.append("ABT-1", { run: "r", node: null, decision: "d", why: "w", evidence: null, result: "ok", ...r });
+  const append = (r: Loose<RecordInput>) =>
+    log.append("ABT-1", { run: "r", node: null, decision: "d", why: "w", evidence: null, result: "ok", ...r } as RecordInput);
   const risk = (tier: RiskTier) => append({ kind: "risk-assessment", payload: { tier, reasons: [] } });
   const agent = (result: "ok" | "fail") => append({ kind: "node-outcome", node: "implement/0", result, payload: { nodeKind: "agent" } });
   const route = (t: Ticket, deps: Parameters<typeof routeWorker>[0] = {}) => routeWorker(deps, { ticket: t, records: log.read("ABT-1") });

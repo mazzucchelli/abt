@@ -76,7 +76,7 @@ export async function runTicket(deps: TicketRunDeps): Promise<TicketRunResult> {
       { tracker, log, ...(deps.notifier && { notifier: deps.notifier }) },
       {
         ticket, run, node: asked.node, reason: "only the owner can retype a ticket",
-        askPoint: { question: String(asked.payload.question), recommended: String(asked.payload.recommended), evidence: log.path(ticket), reversible: false },
+        askPoint: { question: asked.payload.question, recommended: asked.payload.recommended, evidence: log.path(ticket), reversible: false },
       },
     );
     return { run, result: "skipped", terminal: false };
@@ -362,8 +362,8 @@ async function finish(deps: TicketRunDeps, result: Result, moveTo?: "Needs you" 
     const asked = log.read(ticket).findLast((r) => r.kind === "escalation");
     const reason = asked?.why ?? `the run ended ${result}`;
     await postAskPoint(tracker, ticket, {
-      question: String(asked?.payload.question ?? `The run could not finish: ${reason}`),
-      recommended: String(asked?.payload.recommended ?? RERUN_RECOMMENDATION),
+      question: asked?.payload.question ?? `The run could not finish: ${reason}`,
+      recommended: asked?.payload.recommended ?? RERUN_RECOMMENDATION,
       evidence: log.path(ticket),
       reversible: asked?.payload.reversible !== false,
     });

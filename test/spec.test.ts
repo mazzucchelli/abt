@@ -1,6 +1,10 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
+import type { DecisionRecord } from "../src/log/record.ts";
 import { specApproved, validateSpec } from "../src/spec.ts";
+
+const rec = (kind: "escalation" | "override", payload: object) =>
+  ({ id: "x", timestamp: "2026-01-01T00:00:00Z", ticket: "ABT-1", run: "r", node: null, decision: "d", why: "", evidence: null, result: "ok", kind, payload }) as DecisionRecord;
 
 test("a spec whose criteria all say proved by or gap is accepted, and its gaps are listed", () => {
   const v = validateSpec([
@@ -45,9 +49,9 @@ test("only the Acceptance criteria section is read when the spec has one", () =>
 });
 
 test("an owner answer to a different escalation is not approval of the spec", () => {
-  const ask = { kind: "escalation", payload: { question: "Approve the spec? yes" } };
-  const other = { kind: "escalation", payload: { question: "The run could not finish" } };
-  const answer = { kind: "override", payload: { target: "escalation", by: "owner" } };
+  const ask = rec("escalation", { reason: "r", needs: "n", question: "Approve the spec? yes", specApproval: true });
+  const other = rec("escalation", { reason: "r", needs: "n", question: "The run could not finish" });
+  const answer = rec("override", { target: "escalation", by: "owner" });
   assert.equal(specApproved([ask, answer]), true);
   assert.equal(specApproved([ask, other, answer]), false);
 });
