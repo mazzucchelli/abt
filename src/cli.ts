@@ -8,7 +8,7 @@ import { runPass } from "./pass.ts";
 import { TreeError } from "./tree.ts";
 import { renderRun } from "./log/show.ts";
 import { abtHome, DecisionLog, LogError } from "./log/store.ts";
-import { WORKER_KINDS, type RecordInput, type RecordKind } from "./log/record.ts";
+import { WORKER_KINDS, type RecordInput } from "./log/record.ts";
 import { DirTrees, LayeredTrees } from "./trees.ts";
 import { hookCommand } from "./harness/claude/hooks.ts";
 import { runnerCommand } from "./runner/cli.ts";
@@ -20,7 +20,7 @@ import { watchCommand } from "./watch/app.ts";
 import { upgradeCommand } from "./install/cli.ts";
 import { selfTestCommand } from "./install/selftest.ts";
 import { retypeAskPoint } from "./retype.ts";
-import { WORK_TYPES, type WorkType } from "./tracker/contract.ts";
+import { WORK_TYPES } from "./tracker/contract.ts";
 
 const USAGE = `usage: abt <command>
 
@@ -98,7 +98,7 @@ async function main(argv: string[]): Promise<number> {
  */
 function workerLogViolation(env: NodeJS.ProcessEnv, ticket: string, input: RecordInput): string | undefined {
   if (env.ABT_ROLE !== "worker") return undefined;
-  if (!WORKER_KINDS.includes(input?.kind as RecordKind)) {
+  if (!WORKER_KINDS.some((k) => k === input?.kind)) {
     return `workers may only write ask-point, pivot and blocked records, not ${JSON.stringify(input?.kind)}`;
   }
   if (env.ABT_TICKET && env.ABT_TICKET !== ticket) return `workers may only write to their own ticket's log (${env.ABT_TICKET}), not ${ticket}`;
@@ -118,10 +118,10 @@ function logCommand(args: string[]): number {
       const denied = workerLogViolation(process.env, ticket, input);
       if (denied && input.kind === "retype" && process.env.ABT_ROLE === "worker" && (!process.env.ABT_TICKET || process.env.ABT_TICKET === ticket)) {
         // Only the human retypes a ticket: the worker's attempt becomes an ask-point that always escalates.
-        const to = input.payload?.to as WorkType | undefined;
-        const from = input.payload?.from as WorkType | undefined;
-        if (to && (WORK_TYPES as readonly string[]).includes(to)) {
-          const a = retypeAskPoint(ticket, from && (WORK_TYPES as readonly string[]).includes(from) ? from : undefined, to);
+        const to = input.payload?.to;
+        const from = input.payload?.from;
+        if (to && WORK_TYPES.includes(to)) {
+          const a = retypeAskPoint(ticket, from && WORK_TYPES.includes(from) ? from : undefined, to);
           log.append(ticket, {
             run: input.run, node: input.node ?? null, kind: "ask-point", decision: `${a.handling}: ${a.question}`,
             why: "only the owner can retype a ticket; a worker that sees a type mismatch asks instead", evidence: null, result: "open",

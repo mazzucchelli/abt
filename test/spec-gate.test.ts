@@ -54,7 +54,7 @@ test("a low ticket graded hard does not skip: it gets a spec", async () => {
   await overrideGrade({ log: w.log }, { ticket: w.id, run: "r0", to: "hard", by: "matteo" });
   await w.run();
   assert.deepEqual(w.procedures(), ["spec-writing", "tdd"]);
-  assert.equal(w.log.read(w.id).filter((r) => r.payload.specSkip === true).length, 0);
+  assert.equal(w.log.read(w.id).filter((r) => r.kind === "note" && r.payload.specSkip === true).length, 0);
 });
 
 test("a medium ticket gets a spec linked before the worker starts implementing", async () => {

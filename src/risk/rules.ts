@@ -97,6 +97,10 @@ export interface RuleHit {
   path: string | null;
   tier: RiskTier;
   reason: string;
+  /** The hit is a newly added dependency. */
+  newDependency?: true;
+  /** The hit is a criterion or change no committed check proves. */
+  evidenceGap?: true;
 }
 
 export interface FloorInput {
@@ -249,7 +253,7 @@ function dependencyHits(path: string, patch: string | undefined): RuleHit[] {
   const hits: RuleHit[] = [base];
   for (const [name, version] of added) {
     const before = removed.get(name);
-    if (before === undefined) hits.push({ path, tier: "high", reason: `new dependency ${name}` });
+    if (before === undefined) hits.push({ path, tier: "high", reason: `new dependency ${name}`, newDependency: true });
     else if (before !== version && breaking(before, version)) hits.push({ path, tier: "high", reason: `major dependency change ${name} ${before} -> ${version}` });
     else if (before !== version) hits.push({ path, tier: "medium", reason: `minor or patch dependency change ${name}` });
   }
@@ -284,6 +288,6 @@ export function computeFloor(input: FloorInput, map: RiskMap = defaultRiskMap())
     if (input.files.length > map.maxFiles) hits.push({ path: null, tier: "medium", reason: `${input.files.length} changed files (over ${map.maxFiles})` });
   }
   for (const f of input.fixedFloors ?? []) hits.push({ path: f.path === "(visual diff)" ? null : f.path, tier: "medium", reason: `${f.reason} is never low` });
-  for (const gap of input.evidenceGaps ?? []) hits.push({ path: null, tier: "medium", reason: `evidence gap: ${gap}` });
+  for (const gap of input.evidenceGaps ?? []) hits.push({ path: null, tier: "medium", reason: `evidence gap: ${gap}`, evidenceGap: true });
   return { floor: maxTier(...hits.map((h) => h.tier)), hits };
 }

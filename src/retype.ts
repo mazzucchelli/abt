@@ -1,13 +1,11 @@
 import type { CodeHost } from "./codehost/contract.ts";
-import type { DecisionRecord } from "./log/record.ts";
+import { ofKind, type AskPointRecord, type DecisionRecord } from "./log/record.ts";
 import type { DecisionLog } from "./log/store.ts";
 import { effectiveTier } from "./risk/assess.ts";
-import { RISK_TIERS, WORK_TYPES, type RiskTier, type Tracker, type WorkType } from "./tracker/contract.ts";
+import { RISK_TIERS, type RiskTier, type Tracker, type WorkType } from "./tracker/contract.ts";
 import { branchFor } from "./workspace/branch.ts";
 import type { Workspace } from "./workspace/contract.ts";
 import type { WorkerEnvs } from "./workspace/env.ts";
-
-const isWorkType = (x: unknown): x is WorkType => (WORK_TYPES as readonly unknown[]).includes(x);
 
 /**
  * The type the ticket's run is on, as the log last left it: the latest retype's target, else the type the
@@ -16,8 +14,8 @@ const isWorkType = (x: unknown): x is WorkType => (WORK_TYPES as readonly unknow
 export function runningType(records: DecisionRecord[]): WorkType | undefined {
   let out: WorkType | undefined;
   for (const r of records) {
-    if (r.kind === "retype" && isWorkType(r.payload.to)) out = r.payload.to;
-    else if (r.kind === "risk-assessment" && isWorkType(r.payload.workType)) out ??= r.payload.workType;
+    if (r.kind === "retype") out = r.payload.to;
+    else if (r.kind === "risk-assessment" && r.payload.workType !== undefined) out ??= r.payload.workType;
   }
   return out;
 }
@@ -114,8 +112,8 @@ export function retypeAskPoint(ticket: string, from: WorkType | undefined, to: W
 }
 
 /** The latest worker ask-point that asked for a retype and that no escalation has raised to the human yet. */
-export function unraisedRetypeAsk(records: DecisionRecord[]): DecisionRecord | undefined {
-  const asked = records.findLastIndex((r) => r.kind === "ask-point" && isWorkType(r.payload.retype));
-  if (asked < 0) return undefined;
-  return records.slice(asked).some((r) => r.kind === "escalation") ? undefined : records[asked];
+export function unraisedRetypeAsk(records: DecisionRecord[]): AskPointRecord | undefined {
+  const asked = ofKind(records, "ask-point").findLast((r) => r.payload.retype !== undefined);
+  if (!asked) return undefined;
+  return records.slice(records.indexOf(asked)).some((r) => r.kind === "escalation") ? undefined : asked;
 }

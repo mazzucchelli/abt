@@ -15,6 +15,7 @@ import { DirTrees, MemoryTrees } from "../src/trees.ts";
 import { InMemoryTracker } from "../src/tracker/fake.ts";
 import type { RiskTier } from "../src/tracker/contract.ts";
 import { FakeWorkspace } from "../src/workspace/fake.ts";
+import { ofKind, type RecordKind } from "../src/log/record.ts";
 
 const defaultsDir = new URL("../defaults/trees/", import.meta.url).pathname;
 const defaults = new DirTrees(defaultsDir);
@@ -56,7 +57,7 @@ async function world(opts: { tier?: RiskTier; policy?: string | null; project?: 
   const run = () => runTicket(deps());
   const deps2 = () => ({ ticket: id, tracker, codeHost, harness, workspace, log, newId });
   const state = async () => (await tracker.readTicket(id)).state;
-  const kinds = (k: string) => log.read(id).filter((r) => r.kind === k);
+  const kinds = <K extends RecordKind>(k: K) => ofKind(log.read(id), k);
   /** The PR the worker opened is green on its head SHA. */
   const green = (sha = "sha-1") => {
     codeHost.setFacts(id, { headSha: sha, jobs: { "can-merge": { state: "success", sha } }, checks: { "branch-up-to-date": true } });
