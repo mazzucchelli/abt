@@ -24,7 +24,7 @@ export class GhProbe implements FactsProbe {
   readonly #exec: Exec;
   readonly #noApps: boolean;
   #files: Promise<string[]> | undefined;
-  #meta: Promise<{ branch: string; slug: string; id: string; private?: boolean; visibility?: string; autoMerge?: boolean; ownerType?: string }> | undefined;
+  #meta: Promise<{ branch: string; slug: string; id: string; private?: boolean; visibility?: string; autoMerge?: boolean; ownerType?: string; ownerLogin: string }> | undefined;
 
   constructor(o: { repo: string; exec?: Exec; /** The human said no installed GitHub App can write here: a user token can't read that. */ confirmedNoWriteApps?: boolean }) {
     this.#repo = o.repo;
@@ -50,13 +50,14 @@ export class GhProbe implements FactsProbe {
       const id = projectIdFromRemote(remote);
       if (!id) throw new Error(`origin is not a GitHub remote: ${remote}`);
       const slug = repoSlug(id);
-      const repo = await this.#try(() => this.#api<{ default_branch: string; private?: boolean; visibility?: string; allow_auto_merge?: boolean; owner?: { type?: string } }>(slug, ""));
+      const repo = await this.#try(() => this.#api<{ default_branch: string; private?: boolean; visibility?: string; allow_auto_merge?: boolean; owner?: { type?: string; login?: string } }>(slug, ""));
       return {
         id, slug, branch: repo?.default_branch ?? (await remoteDefaultBranch(this.#repo, this.#exec)),
         ...(repo?.private !== undefined && { private: repo.private }),
         ...(repo?.visibility !== undefined && { visibility: repo.visibility }),
         ...(repo?.allow_auto_merge !== undefined && { autoMerge: repo.allow_auto_merge }),
         ...(repo?.owner?.type !== undefined && { ownerType: repo.owner.type }),
+        ownerLogin: repo?.owner?.login ?? slug.split("/")[0]!,
       };
     })());
   }
@@ -89,9 +90,27 @@ export class GhProbe implements FactsProbe {
       // "Not protected" is an answer. A bare 404 is not: GitHub sends it to tokens without admin rights too.
       if (!/Branch not protected|Upgrade to GitHub Pro/.test(errorText(e))) return undefined;
     }
-    const active = rulesets.some((r) => r.enforcement === "active");
-    if (!prot && !active) return { enforced: false, required_checks: [], approvals: 0 };
-    return { enforced: true, required_checks: prot?.required_status_checks?.contexts ?? [], approvals: prot?.required_pull_request_reviews?.required_approving_review_count ?? 0 };
+    // What a ruleset requires of the default branch is read from the rules in force on it, not from the rulesets' own flags.
+    let rules: { type: string; parameters?: { required_status_checks?: { context: string }[]; required_approving_review_count?: number } }[] = [];
+    if (rulesets.some((r) => r.enforcement === "active")) {
+      try {
+        rules = await this.#api(slug, `/rules/branches/${branch}`);
+      } catch {
+        return undefined;
+      }
+    }
+    if (!prot && rules.length === 0) return { enforced: false, required_checks: [], approvals: 0 };
+    const checks = [...(prot?.required_status_checks?.contexts ?? []), ...rules.filter((r) => r.type === "required_status_checks").flatMap((r) => r.parameters?.required_status_checks?.map((c) => c.context) ?? [])];
+    const approvals = [prot?.required_pull_request_reviews?.required_approving_review_count ?? 0, ...rules.filter((r) => r.type === "pull_request").map((r) => r.parameters?.required_approving_review_count ?? 0)];
+    return { enforced: true, required_checks: [...new Set(checks)], approvals: Math.max(...approvals) };
+  }
+
+  /** The plan of the account that owns the repo: a user's own, an organization's. Another account's plan is not visible. */
+  async #plan(owner: { login: string; type?: string }): Promise<string | undefined> {
+    const read = (path: string) => this.#exec("gh", ["api", path], { cwd: this.#repo }).then((out) => JSON.parse(out) as { login?: string; plan?: { name?: string } });
+    if (owner.type === "Organization") return (await read(`orgs/${owner.login}`)).plan?.name;
+    const me = await read("user");
+    return me.login === owner.login ? me.plan?.name : undefined;
   }
 
   async #ci(): Promise<ProjectFacts["ci"]> {
@@ -139,8 +158,9 @@ export class GhProbe implements FactsProbe {
     };
     set("visibility", visibility as ProjectFacts["visibility"]);
     set("protection", protection);
+    set("plan", await this.#try(() => this.#plan({ login: info.ownerLogin, ...(info.ownerType && { type: info.ownerType }) })));
     set("allow_auto_merge", info.autoMerge);
-    // A merge queue is an organization feature; for an organization repo it depends on the plan, which a token can't read.
+    // A merge queue is an organization feature; for an organization repo it depends on the plan, which only an owner's token can read, so it stays unknown there.
     set("merge_queue_available", info.ownerType === "User" ? false : undefined);
     set("write_collaborators", collaborators?.filter((c) => c.permissions?.push || c.permissions?.admin).map((c) => c.login));
     set("write_apps", keys === undefined || !this.#noApps ? undefined : keys.filter((k) => !k.read_only).map((k) => k.title));

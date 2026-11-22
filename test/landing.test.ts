@@ -8,6 +8,7 @@ import { stringify } from "yaml";
 import { FakeClock } from "../src/clock.ts";
 import { FakeCodeHost } from "../src/codehost/fake.ts";
 import { FakeHarness, specWriter } from "../src/harness/fake.ts";
+import { pinnedProject } from "../src/onboard/fake.ts";
 import { MemoryPolicy } from "../src/landing/policy.ts";
 import { DecisionLog } from "../src/log/store.ts";
 import { runTicket } from "../src/ticket-run.ts";
@@ -37,7 +38,7 @@ const policyFile = (over: Record<string, unknown> = {}) =>
     ...over,
   });
 
-async function world(opts: { tier?: RiskTier; policy?: string | null; project?: Record<string, string> } = {}) {
+async function world(opts: { tier?: RiskTier; policy?: string | null; project?: Record<string, string>; /** Leave the project with no pin store. */ unpinned?: boolean } = {}) {
   const tracker = new InMemoryTracker();
   const { id } = await tracker.createTicket({ title: "feat: add the thing", body: "details", risk: opts.tier ?? "low" });
   const codeHost = new FakeCodeHost();
@@ -50,9 +51,10 @@ async function world(opts: { tier?: RiskTier; policy?: string | null; project?: 
   const clock = new FakeClock();
   const log = new DecisionLog(mkdtempSync(join(tmpdir(), "abt-land-")), clock, newId);
   const policy = new MemoryPolicy(opts.policy === undefined ? policyFile() : (opts.policy ?? undefined));
+  const pins = opts.unpinned ? undefined : await pinnedProject("acme__demo");
   const deps = () => ({
     ticket: id, tracker, codeHost, harness, workspace, log, newId, plugin: defaults,
-    project: new MemoryTrees(".agents/abt/trees", opts.project ?? {}), policy,
+    project: new MemoryTrees(".agents/abt/trees", opts.project ?? {}), policy, ...(pins && { pins }),
   });
   const run = () => runTicket(deps());
   const deps2 = () => ({ ticket: id, tracker, codeHost, harness, workspace, log, newId });
@@ -151,6 +153,17 @@ for (const [name, policy] of [
     assert.equal(w.log.read(w.id).filter((x) => x.node === "land").length, 1, "said once, not on every poll");
   });
 }
+
+test("a merge policy with no pin store never merges: it fails closed", async () => {
+  const w = await world({ tier: "low", unpinned: true });
+  await w.run();
+  w.green("abc123");
+  const r = await w.run();
+  assert.equal(r.result, "open");
+  assert.equal((await w.codeHost.readFacts(w.id)).merged, false);
+  assert.equal(w.kinds("merge").length, 0);
+  assert.match(w.log.read(w.id).findLast((x) => x.node === "land")!.why, /no pin store/);
+});
 
 test("a PR a human merged by hand is Done even with no policy", async () => {
   const w = await world({ policy: null });

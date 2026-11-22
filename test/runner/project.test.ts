@@ -8,6 +8,7 @@ import { stringify } from "yaml";
 import { systemExec, type Exec } from "../../src/codehost/exec.ts";
 import { FakeCodeHost } from "../../src/codehost/fake.ts";
 import { snapshotFacts } from "../../src/landing/drift.ts";
+import { FilePins } from "../../src/onboard/pins.ts";
 import { soloPrivateFacts } from "../../src/onboard/fake.ts";
 import { FakeGh } from "../codehost/fake-gh.ts";
 import { GhCodeHost, revertBranch } from "../../src/codehost/gh.ts";
@@ -238,4 +239,98 @@ test("with a real project in the config, the post-merge watch reads main-branch 
   assert.deepEqual(gh.prsFrom(revertBranch(sha)).map((p) => p.merged), [false]);
   assert.ok(!gh.calls.some((c) => c[1] === "pr" && c[2] === "merge"));
   assert.equal((await ctx.tracker.listByState("Needs you")).length, 1);
+});
+
+/** Commits the project's abt files and moves origin/main to them, as a fetch would after a merge. Returns the commit. */
+function commitMain(repo: string, files: Record<string, string>): string {
+  for (const [path, content] of Object.entries(files)) {
+    mkdirSync(join(repo, path, ".."), { recursive: true });
+    writeFileSync(join(repo, path), content);
+  }
+  execFileSync("git", ["-C", repo, "add", "."]);
+  execFileSync("git", ["-C", repo, "-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "-m", "abt files"]);
+  const sha = execFileSync("git", ["-C", repo, "rev-parse", "HEAD"], { encoding: "utf8" }).trim();
+  execFileSync("git", ["-C", repo, "update-ref", "refs/remotes/origin/main", sha]);
+  return sha;
+}
+
+/** GitHub answers `gh pr view` with a PR in the given state; git is the project's own checkout. */
+const prState = (state: "OPEN" | "MERGED", mergeCommit?: string): Exec => (cmd, args, opts) =>
+  cmd === "git" && args[0] === "fetch"
+    ? Promise.resolve("")
+    : cmd === "gh" && args[0] === "pr" && args[1] === "view"
+    ? Promise.resolve(JSON.stringify({ number: 1, url: "https://github.com/acme/demo/pull/1", state, headRefOid: "h", baseRefName: "main", mergeCommit: mergeCommit ? { oid: mergeCommit } : null }))
+    : cmd === "gh"
+    ? Promise.reject(new Error("gh is not reachable from a test"))
+    : systemExec(cmd, args, opts);
+
+test("with a real project in the config, the runner settles a merged onboarding PR and writes the pins", async () => {
+  const { home, repo, entry } = project();
+  const merged = commitMain(repo, { ".agents/abt/merge-policy.yaml": "policy: a\n" });
+  const ctx = context(home, { exec: prState("MERGED", merged) });
+  const [real] = (await serveProjects([entry], ctx)).projects;
+  assert.ok(real?.onboarding, "the runner has a settle for the project");
+  const store = new FilePins(home);
+  await store.writePending("acme__demo", 1);
+
+  await real.onboarding.settle();
+
+  const pins = await store.readPins("acme__demo");
+  assert.deepEqual(Object.keys(pins?.files ?? {}).sort(), [".agents/abt/merge-policy.yaml", ".agents/abt/workflow.md"]);
+  assert.equal(await store.readPending("acme__demo"), undefined);
+});
+
+test("an onboarding PR that is still open pins nothing", async () => {
+  const { home, repo, entry } = project();
+  commitMain(repo, { ".agents/abt/merge-policy.yaml": "policy: a\n" });
+  const [real] = (await serveProjects([entry], context(home, { exec: prState("OPEN") }))).projects;
+  const store = new FilePins(home);
+  await store.writePending("acme__demo", 1);
+  await real!.onboarding!.settle();
+  assert.equal(await store.readPins("acme__demo"), undefined);
+  assert.equal(await store.readPending("acme__demo"), 1);
+});
+
+test("a protected-file mismatch holds the real project's tickets in Needs you", async () => {
+  const { home, repo, entry } = project();
+  const merged = commitMain(repo, { ".agents/abt/merge-policy.yaml": "policy: a\n" });
+  const ctx = context(home, { exec: prState("MERGED", merged) });
+  const [real] = (await serveProjects([entry], ctx)).projects;
+  const store = new FilePins(home);
+  await store.writePending("acme__demo", 1);
+  await real!.onboarding!.settle();
+  const { id } = await ctx.tracker.createTicket({ title: "feat: add the thing", body: "", risk: "low" });
+
+  // The policy changes on the default branch with no new pin.
+  commitMain(repo, { ".agents/abt/merge-policy.yaml": "policy: b\n" });
+  const r = await runTicket(real!.deps(id));
+
+  assert.equal(r.result, "skipped");
+  assert.equal((await ctx.tracker.readTicket(id)).state, "Needs you");
+});
+
+test("a real project's ticket runs carry the pin store and the project id", async () => {
+  const { home, repo, entry } = project();
+  const merged = commitMain(repo, { ".agents/abt/merge-policy.yaml": "policy: a\n" });
+  const ctx = context(home, { exec: prState("MERGED", merged) });
+  const [real] = (await serveProjects([entry], ctx)).projects;
+  assert.ok(real?.deps("ABT-1").pins, "the ticket's run has the pin store");
+  assert.equal(real.deps("ABT-1").pins?.project, "acme__demo");
+});
+
+test("a real project's guard holds a merge when a protected file no longer matches its pin", async () => {
+  const { home, repo, entry } = project();
+  const merged = commitMain(repo, { ".agents/abt/merge-policy.yaml": "policy: a\n" });
+  const ctx = context(home, { exec: prState("MERGED", merged) });
+  const [real] = (await serveProjects([entry], ctx)).projects;
+  await new FilePins(home).writePending("acme__demo", 1);
+  await real!.onboarding!.settle();
+  commitMain(repo, { ".agents/abt/merge-policy.yaml": "policy: b\n" });
+  const { id } = await ctx.tracker.createTicket({ title: "t", body: "" });
+  const gate = await real!.guard!.beforeMerge({ ticket: id, run: "r", log: real!.log, policy: {
+    version: 1, gates: { required_checks: ["can-merge"], approvals: 1 }, enforcement: "self", compensating_controls: ["runner-sole-merger", "head-sha-recheck"],
+    risk_cap: "low", mode: "merge", evidence: { self_certification: false }, risk_map: { rules: [], max_lines: 400, max_files: 15 },
+    facts: { default_branch: "main", captured_at: "2026-11-20T00:00:00Z", ...snapshotFacts(soloPrivateFacts()) }, land_tree_hash: "0".repeat(64),
+  } });
+  assert.ok(!gate.ok && /merge-policy\.yaml/.test(gate.why), JSON.stringify(gate));
 });

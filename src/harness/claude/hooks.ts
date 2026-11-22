@@ -1,6 +1,7 @@
 import { execFileSync, spawnSync } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
+import { join, resolve, sep } from "node:path";
 import { systemClock } from "../../clock.ts";
 import { abtHome, DecisionLog } from "../../log/store.ts";
 
@@ -11,9 +12,12 @@ const WRITE_TOOLS = ["Edit", "Write", "MultiEdit", "NotebookEdit"];
 const GIT_READ_ONLY_BRANCH = ["--list", "-l", "-a", "-r", "-v", "-vv", "--show-current", "--all", "--remotes", "--contains", "--merged", "--no-merged"];
 
 /** Why a tool call is refused to a worker, or undefined when it is allowed. Pure. */
-export function guardToolCall(tool: string, input: { command?: string }, currentBranch: string | undefined, defaultBranch: string): string | undefined {
+export function guardToolCall(tool: string, input: { command?: string; file_path?: string; notebook_path?: string }, currentBranch: string | undefined, defaultBranch: string, home?: string): string | undefined {
   const onDefault = currentBranch !== undefined && currentBranch === defaultBranch;
-  if (WRITE_TOOLS.includes(tool)) return onDefault ? `writes to the default branch (${defaultBranch}) are not allowed` : undefined;
+  if (WRITE_TOOLS.includes(tool)) {
+    if (home && writesOwnerState(String(input.file_path ?? input.notebook_path ?? ""), home)) return "the pins and the pending onboarding PR are the owner's: a worker may not write them";
+    return onDefault ? `writes to the default branch (${defaultBranch}) are not allowed` : undefined;
+  }
   if (tool !== "Bash") return undefined;
   for (const segment of String(input.command ?? "").split(/&&|\|\||[;|\n(){}`]|\$\(/)) {
     const why = guardSegment(segment.trim().split(/\s+/), onDefault, defaultBranch);
@@ -22,11 +26,19 @@ export function guardToolCall(tool: string, input: { command?: string }, current
   return undefined;
 }
 
+/** The abt home's pins and pending onboarding PRs: what says which protected files the owner agreed to. */
+function writesOwnerState(file: string, home: string): boolean {
+  const path = resolve(file);
+  return ["pins", "onboarding"].some((dir) => path.startsWith(`${join(resolve(home), dir)}${sep}`));
+}
+
 function guardSegment(words: string[], onDefault: boolean, defaultBranch: string): string | undefined {
   // Skip leading VAR=value assignments.
   let i = 0;
   while (i < words.length && /^[A-Za-z_][A-Za-z0-9_]*=/.test(words[i]!)) i++;
   const [bin, ...rest] = words.slice(i);
+  // Only the owner re-pins, at a terminal; a worker has none.
+  if (bin !== undefined && /(^|\/)abt$/.test(bin) && rest[0] === "onboard" && rest[1] === "pin") return "re-pinning protected files is the owner's: a worker may not run `abt onboard pin`";
   if (bin === "gh") {
     const [area, verb] = rest.filter((w) => !w.startsWith("-"));
     if (area === "pr" && verb === "merge") return "merging a pull request is not allowed";
@@ -119,7 +131,10 @@ export function hookCommand(name: string | undefined, stdin: string, env: NodeJS
   if (name === "pre-tool-use") {
     const tool = String(payload.tool_name ?? "");
     const input = payload.tool_input ?? {};
-    const why = guardToolCall(tool, input, currentBranch(cwd), e.defaultBranch);
+    // A relative path is the worker's own working directory's, not the hook process's.
+    const target = input.file_path ?? input.notebook_path;
+    const absolute = typeof target === "string" ? { ...input, file_path: resolve(cwd, target) } : input;
+    const why = guardToolCall(tool, absolute, currentBranch(cwd), e.defaultBranch, e.home);
     if (why) {
       const what = tool === "Bash" ? String(input.command ?? "") : `${tool} ${String(input.file_path ?? input.notebook_path ?? "")}`.trim();
       try {

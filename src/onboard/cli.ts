@@ -5,7 +5,8 @@ import { resolve } from "node:path";
 import { abtHome } from "../log/store.ts";
 import { BUNDLE_PATHS, buildBundle, openOnboardingPr } from "./bundle.ts";
 import { GhHost, GhProbe, GitFiles, remoteDefaultBranch, systemExec } from "./github.ts";
-import { acceptPins, FilePins, settleOnboarding } from "./pins.ts";
+import { createInterface } from "node:readline/promises";
+import { acceptPins, checkPins, FilePins, settleOnboarding } from "./pins.ts";
 import { applyDraft, propose } from "./propose.ts";
 
 const USAGE = `usage: abt onboard probe [options]
@@ -38,7 +39,29 @@ function parse(args: string[]): { flags: Record<string, string>; noApps: boolean
   return { flags, noApps };
 }
 
-export async function onboardCommand(args: string[]): Promise<number> {
+/** What the command needs from its surroundings; each seam can be swapped in a test. */
+export interface OnboardIo {
+  env: NodeJS.ProcessEnv;
+  /** Whether the owner is at a terminal: a headless run (a worker's) is not. */
+  interactive: boolean;
+  /** Asks the owner a question and returns what they typed. */
+  confirm(question: string): Promise<string>;
+}
+
+const systemIo = (): OnboardIo => ({
+  env: process.env,
+  interactive: Boolean(process.stdin.isTTY && process.stdout.isTTY),
+  confirm: async (question) => {
+    const rl = createInterface({ input: process.stdin, output: process.stdout });
+    try {
+      return (await rl.question(question)).trim();
+    } finally {
+      rl.close();
+    }
+  },
+});
+
+export async function onboardCommand(args: string[], io: OnboardIo = systemIo()): Promise<number> {
   const [sub, ...rest] = args;
   const parsed = parse(rest);
   if (!sub || !["probe", "open", "settle", "pin"].includes(sub) || !parsed) {
@@ -46,6 +69,18 @@ export async function onboardCommand(args: string[]): Promise<number> {
     return 2;
   }
   const repo = resolve(parsed.flags["--project"] ?? ".");
+  // Re-pinning says "I read this change and agree". $ABT_HOME is writable by workers, so this is a guard against a worker
+  // doing it by the book, not a sandbox: it needs a person at a terminal who types the project id, which a headless run has none of.
+  if (sub === "pin") {
+    if (io.env.ABT_ROLE === "worker") {
+      console.error("abt: only the owner re-pins protected files; a worker may not");
+      return 1;
+    }
+    if (!io.interactive) {
+      console.error("abt: re-pinning needs the owner at a terminal: run `abt onboard pin` yourself, not from a script or an agent");
+      return 1;
+    }
+  }
   try {
     const home = abtHome();
     const pins = new FilePins(home);
@@ -67,8 +102,10 @@ export async function onboardCommand(args: string[]): Promise<number> {
       return 0;
     }
     if (sub === "pin") {
-      if (process.env.ABT_ROLE === "worker") {
-        console.error("abt: only the owner re-pins protected files; a worker may not");
+      const check = await checkPins(files, pins, project);
+      console.log(check.status === "mismatch" ? `changed since the last pin:\n${check.changed.map((f) => `  ${f}`).join("\n")}` : check.status === "pinned" ? "nothing changed since the last pin" : "no pins yet");
+      if ((await io.confirm(`Type the project id (${project}) to pin the files as the default branch has them now: `)) !== project) {
+        console.error("abt: not pinned");
         return 1;
       }
       const recorded = await acceptPins({ files, pins, project });

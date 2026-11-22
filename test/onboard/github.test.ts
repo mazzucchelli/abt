@@ -21,7 +21,8 @@ jobs:
 function exec(answers: Record<string, string | Error>): Exec {
   return async (cmd, args) => {
     const line = [cmd, ...args].join(" ");
-    const hit = Object.entries(answers).find(([k]) => line.startsWith(k));
+    // The most specific key wins, so an override added later is not shadowed by a shorter prefix.
+    const hit = Object.entries(answers).filter(([k]) => line.startsWith(k)).sort((a, b) => b[0].length - a[0].length)[0];
     if (!hit) throw new Error(`unexpected command: ${line}`);
     if (hit[1] instanceof Error) throw hit[1];
     return hit[1];
@@ -117,4 +118,66 @@ test("the aggregator is found within its workflow, even with a second workflow i
     }),
   });
   assert.equal((await probe.facts()).ci?.aggregator, "can-merge");
+});
+
+test("the plan is read from the owner's account: a user's own, an organization's", async () => {
+  const user = new GhProbe({ repo: "/r", exec: exec({ ...base, "gh api user": JSON.stringify({ login: "me", plan: { name: "pro" } }) }), confirmedNoWriteApps: true });
+  assert.equal((await user.facts()).plan, "pro");
+  const org = {
+    ...base,
+    "gh api repos/me/solo": JSON.stringify({ default_branch: "main", private: true, visibility: "private", allow_auto_merge: false, owner: { type: "Organization", login: "me" } }),
+    "gh api orgs/me": JSON.stringify({ plan: { name: "team" } }),
+  };
+  assert.equal((await new GhProbe({ repo: "/r", exec: exec(org), confirmedNoWriteApps: true }).facts()).plan, "team");
+});
+
+test("a plan that cannot be read is unknown, and so is another account's plan", async () => {
+  assert.equal((await new GhProbe({ repo: "/r", exec: exec(base), confirmedNoWriteApps: true }).facts()).plan, undefined);
+  const other = new GhProbe({ repo: "/r", exec: exec({ ...base, "gh api user": JSON.stringify({ login: "someone-else", plan: { name: "pro" } }) }), confirmedNoWriteApps: true });
+  assert.equal((await other.facts()).plan, undefined);
+});
+
+test("a ruleset's required checks and approvals on the default branch count as protection", async () => {
+  const probe = new GhProbe({
+    repo: "/r", confirmedNoWriteApps: true,
+    exec: exec({
+      ...base,
+      "gh api repos/me/solo/rulesets": JSON.stringify([{ id: 1, enforcement: "active" }]),
+      "gh api repos/me/solo/rules/branches/main": JSON.stringify([
+        { type: "required_status_checks", parameters: { required_status_checks: [{ context: "can-merge" }] } },
+        { type: "pull_request", parameters: { required_approving_review_count: 2 } },
+      ]),
+    }),
+  });
+  assert.deepEqual((await probe.facts()).protection, { enforced: true, required_checks: ["can-merge"], approvals: 2 });
+});
+
+test("rulesets and classic protection together: the checks are merged, the stricter approval count wins", async () => {
+  const prot = JSON.stringify({ required_status_checks: { contexts: ["test"] }, required_pull_request_reviews: { required_approving_review_count: 1 } });
+  const probe = new GhProbe({
+    repo: "/r", confirmedNoWriteApps: true,
+    exec: exec({
+      ...base,
+      "gh api repos/me/solo/branches": prot,
+      "gh api repos/me/solo/rulesets": JSON.stringify([{ id: 1, enforcement: "active" }]),
+      "gh api repos/me/solo/rules/branches/main": JSON.stringify([{ type: "required_status_checks", parameters: { required_status_checks: [{ context: "can-merge" }] } }]),
+    }),
+  });
+  assert.deepEqual((await probe.facts()).protection, { enforced: true, required_checks: ["test", "can-merge"], approvals: 1 });
+});
+
+test("an active ruleset whose rules cannot be read leaves protection unknown", async () => {
+  const probe = new GhProbe({
+    repo: "/r", confirmedNoWriteApps: true,
+    exec: exec({ ...base, "gh api repos/me/solo/rulesets": JSON.stringify([{ id: 1, enforcement: "active" }]), "gh api repos/me/solo/rules/branches/main": new Error("HTTP 500") }),
+  });
+  assert.equal((await probe.facts()).protection, undefined);
+});
+
+test("an active ruleset that targets no rule on the default branch is not protection", async () => {
+  const probe = new GhProbe({
+    repo: "/r", confirmedNoWriteApps: true,
+    exec: exec({ ...base, "gh api repos/me/solo/rulesets": JSON.stringify([{ id: 1, enforcement: "active" }]), "gh api repos/me/solo/rules/branches/main": "[]" }),
+  });
+  assert.deepEqual((await probe.facts()).protection, { enforced: false, required_checks: [], approvals: 0 });
 });
