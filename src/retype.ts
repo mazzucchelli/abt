@@ -57,7 +57,7 @@ export async function applyRetype(d: RetypeDeps, run: string): Promise<boolean> 
   const records = log.read(ticket);
 
   // The worker's branch stays in the repository; the record is how a later start knows not to reuse it.
-  // Every type but research runs the implement tree, so it has a branch and may have a PR.
+  // Every type but research has run the implement tree, so it has a branch and may have a PR.
   const kept = from !== "research" ? ((await workspace.list()).find((w) => w.ticket === ticket)?.branch ?? branchFor(t, records)) : undefined;
   let pr: string | undefined;
   if (kept !== undefined && (to === "research" || to === "implement")) {

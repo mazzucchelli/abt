@@ -159,22 +159,13 @@ test("a worker's retype ask-point sends the ticket to Needs you once, and the ty
   assert.equal(w.log.read(w.id).filter((x) => x.kind === "escalation").length, 1, "raised once");
 });
 
-test("a spike runs the implement tree, so retyping it to research closes its PR and keeps its branch too", async () => {
-  const w = await world({ workType: "spike" });
+test("retyping an implement ticket to a type with no tree sends it to Needs you without merging its PR", async () => {
+  const w = await world();
   await w.run();
   assert.equal((await w.codeHost.readFacts(w.id)).pr, `https://fake.host/${w.id}/pr/1`);
-  await w.tracker.enqueue(w.id, "research");
+  await w.tracker.enqueue(w.id, "spike");
   await w.run();
-  assert.deepEqual(w.codeHost.closed, [w.id]);
-  assert.equal(w.retypes()[0]!.payload.branch, "feat/fake-1-add-the-thing");
-});
-
-test("retyping a spike to implement starts on a fresh branch and closes the spike's PR", async () => {
-  const w = await world({ workType: "spike" });
-  await w.run();
-  await w.tracker.enqueue(w.id, "implement");
-  await w.run();
-  assert.deepEqual(w.codeHost.closed, [w.id]);
-  const adds = w.workspace.events.filter((e) => e.startsWith("add "));
-  assert.equal(adds.at(-1), `add ${w.id} feat/fake-1-add-the-thing-2`);
+  assert.deepEqual(w.codeHost.merges, []);
+  assert.equal((await w.codeHost.readFacts(w.id)).merged, false);
+  assert.equal(await w.state(), "Needs you");
 });

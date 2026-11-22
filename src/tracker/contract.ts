@@ -13,6 +13,13 @@ export type LifecycleState = (typeof LIFECYCLE_STATES)[number];
 export const WORK_TYPES = ["implement", "research", "spike", "bootstrap"] as const;
 export type WorkType = (typeof WORK_TYPES)[number];
 
+/** The work types that have a behavior tree today. Spike and bootstrap wait on ABT-14; until then they are refused, never defaulted to implement. */
+export const TREE_WORK_TYPES: readonly WorkType[] = ["implement", "research"];
+export const hasTree = (t: WorkType): boolean => TREE_WORK_TYPES.includes(t);
+
+/** The one sentence that says why a work type cannot run yet. */
+export const noTreeReason = (t: WorkType): string => `work type ${t} has no behavior tree yet, so abt cannot run it (see ABT-14, trees for the non-implement types)`;
+
 export const RISK_TIERS = ["low", "medium", "high"] as const;
 export type RiskTier = (typeof RISK_TIERS)[number];
 
