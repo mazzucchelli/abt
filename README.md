@@ -72,7 +72,7 @@ bin/abt selftest                                  # the startup self-test of thi
 
 ## PR validation and retention
 
-The runner validates open PRs that touch abt files (`.agents/abt/trees/*.yaml`, `workflow.md`, `policy.yaml`, `checks/`) and posts an `abt/validate` commit status on the head commit, once per head: failing with the first `file:line:col` error, or passing. No CI workflow is added to the project repo.
+The runner validates open PRs that touch abt files (`.agents/abt/trees/*.yaml`, `workflow.md`, `merge-policy.yaml`, `facts.yaml`, `checks/`) and posts an `abt/validate` commit status on the head commit, once per head: failing with the first `file:line:col` error, or passing. `merge-policy.yaml` is checked against its schema (and the fixed rules it may not loosen), not only parsed; `facts.yaml` is parsed. No CI workflow is added to the project repo.
 
 Decision logs are kept forever. Per-run transcripts (`<runs dir>/<ticket>/`) are pruned 30 days after the ticket reaches a terminal state (Done or Abandoned); the runner checks on its 5 minute scan.
 
@@ -117,9 +117,9 @@ bin/abt reply ABT-62 "answer: use postgres"
 bin/abt onboard probe [--no-write-apps]               # facts, proposal, catalogue matches, gaps
 bin/abt onboard open --team ABT [--draft policy.yaml] # PR: merge policy, facts snapshot, land tree, adapter doc, CLAUDE.md pointer
 bin/abt onboard settle                                # after you merged it by hand: record the pins
-bin/abt onboard pin                                   # after you read a change to a protected file: re-pin
+bin/abt onboard pin                                   # at a terminal, after you read a change to a protected file: re-pin (asks you to type the project id)
 ```
 
-The owner merges the PR by hand; until then the project is pr-only. The project id is `<owner>__<repo>` from the GitHub remote. On the hand merge the runner records pins (sha256) of the protected files (`.agents/abt/merge-policy.yaml`, `workflow.md`, `facts.yaml`, `trees/*.yaml`, `checks/`) in `$ABT_HOME/pins/<project id>.json`, outside the repo. A protected file that changed, appeared or vanished without its pin holds every ticket of the project in Needs you, and nothing merges until the owner re-pins.
+The owner merges the PR by hand; until then the project is pr-only. The project id is `<owner>__<repo>` from the GitHub remote. On the hand merge the runner records pins (sha256) of the protected files (`.agents/abt/merge-policy.yaml`, `workflow.md`, `facts.yaml`, `trees/*.yaml`, `checks/`) in `$ABT_HOME/pins/<project id>.json`, outside the repo. A protected file that changed, appeared or vanished without its pin holds every ticket of the project in Needs you, and nothing merges until the owner re-pins. A project with no pin store never merges, whatever its policy says. `abt onboard pin` needs the owner at a terminal and the typed project id, and is denied to workers (a permission rule refuses the command, and the PreToolUse hook refuses it and refuses file-tool writes to `$ABT_HOME/pins` and `onboarding`; a shell command that writes there is not caught); this stops a worker doing it by the book, it is not a sandbox, since `$ABT_HOME` is writable by the user the workers run as.
 
 Two more controls guard autonomous merging, state in `$ABT_HOME/guard/<project id>.json`. Before every merge, and when the runner starts, it re-probes the cheap facts the policy's `facts` snapshot records (default branch, visibility, branch protection, auto-merge, write collaborators and apps) and checks the pins: any difference logs a `probe` record, pauses merges for the project and puts a ticket in Needs you with the diff. After a merge it watches the required jobs on the merge commit: a red one pauses merges and puts a new ticket in Needs you with the merge SHA, the failing job and a revert PR that abt opens and leaves for you to merge. Merging resumes once you have dealt with that Needs you ticket (reply to it or abandon it); if the project still differs from its snapshot, it pauses again, so re-agree the policy (`abt onboard open`) or undo the change.

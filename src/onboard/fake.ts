@@ -1,3 +1,5 @@
+import { FakeOnboardHost } from "./fake-host.ts";
+import { acceptPins, MemoryPins } from "./pins.ts";
 import { missingFacts, type FactsProbe, type ProjectFacts } from "./facts.ts";
 
 /** A probe that answers with the facts and files it was given. */
@@ -38,4 +40,12 @@ export function soloPrivateFacts(): ProjectFacts {
   };
   if (missingFacts(f).length > 0) throw new Error("soloPrivateFacts must be complete");
   return f;
+}
+
+/** A project whose abt files are pinned as they stand: what a merged onboarding PR leaves behind. */
+export async function pinnedProject(project: string, main: Record<string, string> = {}): Promise<{ files: FakeOnboardHost; store: MemoryPins; project: string }> {
+  const files = new FakeOnboardHost(main);
+  const store = new MemoryPins();
+  await acceptPins({ files, pins: store, project });
+  return { files, store, project };
 }
