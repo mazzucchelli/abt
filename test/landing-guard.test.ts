@@ -10,6 +10,7 @@ import { FakeCodeHost } from "../src/codehost/fake.ts";
 import { FakeHarness, specWriter } from "../src/harness/fake.ts";
 import { LandingGuard, MemoryGuard } from "../src/landing/guard.ts";
 import { snapshotFacts } from "../src/landing/drift.ts";
+import { pinnedProject } from "../src/onboard/fake.ts";
 import { MemoryPolicy } from "../src/landing/policy.ts";
 import { DecisionLog } from "../src/log/store.ts";
 import { FakeOnboardHost } from "../src/onboard/fake-host.ts";
@@ -54,10 +55,11 @@ async function world() {
   const store = new MemoryGuard();
   const policy = new MemoryPolicy(policyFile());
   const guard = new LandingGuard({ project: PROJECT, probe, store, policy, tracker, main: codeHost });
+  const pins = await pinnedProject(PROJECT);
   const run = () =>
     runTicket({
       ticket: id, tracker, codeHost, harness, workspace: new FakeWorkspace(), log, newId, plugin: defaults,
-      project: new MemoryTrees(".agents/abt/trees", {}), policy, guard,
+      project: new MemoryTrees(".agents/abt/trees", {}), policy, guard, pins,
     });
   const state = async () => (await tracker.readTicket(id)).state;
   const green = (sha = "sha-1") => codeHost.setFacts(id, { headSha: sha, jobs: { "can-merge": { state: "success", sha } }, checks: { "branch-up-to-date": true } });

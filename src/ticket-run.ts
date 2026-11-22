@@ -1,7 +1,7 @@
 import { runPass, type PassDeps } from "./pass.ts";
 import { treeViolations } from "./invariants.ts";
 import type { LandingGuard } from "./landing/guard.ts";
-import { loadPolicy, projectLock, riskMapOf, sha256, type PolicyStore } from "./landing/policy.ts";
+import { loadPolicy, projectLock, riskMapOf, sha256, type PolicyState, type PolicyStore } from "./landing/policy.ts";
 import type { DecisionRecord, Result } from "./log/record.ts";
 import { assessTicket, effectiveTier, type RiskDeps } from "./risk/assess.ts";
 import { tierFor } from "./routing.ts";
@@ -39,6 +39,7 @@ export interface TicketRunDeps extends Omit<PassDeps, "tree" | "run" | "file"> {
   /**
    * The project's pins, kept outside the repo. With them a protected file that no longer matches its pin holds every
    * ticket in Needs you, and no merge happens until the files are pinned (the owner merged the onboarding PR by hand).
+   * Without them nothing merges: a `mode: merge` policy with no pin store fails closed.
    */
   pins?: { files: DefaultBranchFiles; store: PinStore; project: string };
   /** Re-probes the project before every autonomous merge and watches the default branch after it. Without it merges are not guarded. */
@@ -166,20 +167,27 @@ export async function runTicket(deps: TicketRunDeps): Promise<TicketRunResult> {
  * policy, or in pr-only mode, nothing runs and the PR stays open. A land tree that is not the one the policy was
  * agreed with blocks merging and sends the ticket to Needs you. A merged PR is Done.
  */
+/** Why a PR stays open instead of merging: no agreed policy, one that is invalid or pr-only, or a merge policy whose files are not pinned. */
+function whyNotMerging(agreed: PolicyState, pin: PinCheck | undefined): string {
+  const stays = "the PR stays open and abt does not merge it";
+  if (agreed.status === "none") return `no merge policy: ${stays}`;
+  if (agreed.status === "invalid") return `${agreed.file} is invalid (${agreed.problems.join("; ")}): ${stays}`;
+  if (agreed.policy.mode !== "merge") return `the merge policy's mode is pr-only: ${stays}`;
+  if (pin === undefined) return `the project has no pin store, so its abt files cannot be checked: ${stays}`;
+  return `the project's abt files are not pinned yet (the onboarding PR has not been merged by hand): ${stays}`;
+}
+
 async function runLanding(deps: TicketRunDeps, run: string, pin?: PinCheck): Promise<TicketRunResult> {
   const { tracker, codeHost, log, ticket } = deps;
   const agreed = await loadPolicy(deps.policy);
-  const unpinned = pin?.status === "unpinned";
+  // Fail closed: with no pin store there is nothing to say the files are the ones the owner agreed, so nothing merges.
+  const unpinned = pin === undefined || pin.status === "unpinned";
   if (agreed.status !== "agreed" || agreed.policy.mode !== "merge" || unpinned) {
     if ((await codeHost.readFacts(ticket)).merged) {
       await finish(deps, "ok", "Done");
       return { run, result: "ok", terminal: true };
     }
-    const why =
-      agreed.status === "none" ? "no merge policy: the PR stays open and abt does not merge it"
-      : agreed.status === "invalid" ? `${agreed.file} is invalid (${agreed.problems.join("; ")}): the PR stays open and abt does not merge it`
-      : agreed.status === "agreed" && agreed.policy.mode === "merge" ? "the project's abt files are not pinned yet (the onboarding PR has not been merged by hand): the PR stays open and abt does not merge it"
-      : "the merge policy's mode is pr-only: the PR stays open and abt does not merge it";
+    const why = whyNotMerging(agreed, pin);
     // Polled every minute: say it once, not on every poll.
     if (log.read(ticket).findLast((r) => r.node === "land")?.why !== why) {
       log.append(ticket, { run, node: "land", kind: "node-outcome", decision: "land", why, evidence: null, result: "open", payload: { nodeKind: "action" } });

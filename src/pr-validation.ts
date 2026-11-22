@@ -1,5 +1,6 @@
 import { LineCounter, parseDocument } from "yaml";
 import type { OpenPr, PrHost } from "./codehost/contract.ts";
+import { policyProblems } from "./landing/policy.ts";
 import { AdapterConfigError, parseAdapterDoc } from "./tracker/config.ts";
 import { LayeredTrees, type LoadedTree, type TreeStore } from "./trees.ts";
 import { validateWithUses, type Diagnostic } from "./validate.ts";
@@ -10,13 +11,15 @@ export const VALIDATE_CONTEXT = "abt/validate";
 const ABT_DIR = ".agents/abt";
 const TREES_DIR = `${ABT_DIR}/trees`;
 const ADAPTER_DOC = `${ABT_DIR}/workflow.md`;
-const POLICY = `${ABT_DIR}/policy.yaml`;
+/** The agreed merge policy and the facts snapshot it was agreed against (`abt onboard open` writes both). */
+const POLICY = `${ABT_DIR}/merge-policy.yaml`;
+const FACTS = `${ABT_DIR}/facts.yaml`;
 const CHECKS_DIR = `${ABT_DIR}/checks/`;
 const DESCRIPTION_MAX = 140;
 
 /** Trees, merge policy, adapter doc and check scripts: the files the runner validates. */
 export function isAbtFile(path: string): boolean {
-  return isTree(path) || path === ADAPTER_DOC || path === POLICY || path.startsWith(CHECKS_DIR);
+  return isTree(path) || path === ADAPTER_DOC || path === POLICY || path === FACTS || path.startsWith(CHECKS_DIR);
 }
 
 function isTree(path: string): boolean {
@@ -38,6 +41,14 @@ class PrTrees implements TreeStore {
   }
 }
 
+function yamlErrors(source: string, file: string): Diagnostic[] {
+  const lines = new LineCounter();
+  return parseDocument(source, { lineCounter: lines }).errors.map((err) => {
+    const { line, col } = lines.linePos(err.pos[0]);
+    return at(file, line, col, err.message.split("\n")[0] ?? err.message);
+  });
+}
+
 const at = (file: string, line: number, col: number, text: string): Diagnostic => ({ file, line, col, text, message: `${file}:${line}:${col} ${text}` });
 
 /** The problems in a PR's abt files, or undefined when it touches none. */
@@ -57,12 +68,11 @@ export async function validatePr(host: PrHost, pr: OpenPr, plugin: TreeStore): P
         if (!(e instanceof AdapterConfigError)) throw e;
         diagnostics.push(at(file, 1, 1, e.message));
       }
-    } else if (file === POLICY) {
-      const lines = new LineCounter();
-      for (const err of parseDocument(source, { lineCounter: lines }).errors) {
-        const { line, col } = lines.linePos(err.pos[0]);
-        diagnostics.push(at(file, line, col, err.message.split("\n")[0] ?? err.message));
-      }
+    } else if (file === POLICY || file === FACTS) {
+      const syntax = yamlErrors(source, file);
+      diagnostics.push(...syntax);
+      // The policy is held to its schema, not only to YAML: what the runner would refuse to merge under fails here first.
+      if (file === POLICY && syntax.length === 0) diagnostics.push(...policyProblems(source).map((p) => at(file, 1, 1, p)));
     }
   }
   return diagnostics;

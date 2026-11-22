@@ -23,6 +23,8 @@ export const WORKER_ALLOW = [
 /** What a worker may never do. The PreToolUse guard logs these; the rules are the backstop if the guard does not run. */
 export const WORKER_DENY = [
   "Bash(git push*)", "Bash(gh pr merge*)", "Bash(git switch*)", "Bash(git merge*)",
+  // Only the owner, at a terminal, re-pins the protected files.
+  "Bash(abt onboard pin*)", "Bash(*/bin/abt onboard pin*)",
 ];
 
 /** The hooks a worker runs under: the feedback loop at Stop and the permission guard before each write-capable tool. */

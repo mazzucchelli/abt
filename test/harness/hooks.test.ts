@@ -129,3 +129,16 @@ test("edits on a feature branch are allowed", () => {
   const { hook } = setup({ branch: "feature/x" });
   assert.ok(!denied(hook("pre-tool-use", { tool_name: "Edit", tool_input: { file_path: "a.ts" } })));
 });
+
+test("a worker may not run `abt onboard pin`, and may not write the pins or the pending onboarding PR in the abt home", () => {
+  const { hook, dir } = setup({ branch: "feat/x" });
+  for (const cmd of ["abt onboard pin", "ABT_ROLE=owner bin/abt onboard pin --project .", "cd x && /opt/abt/bin/abt onboard pin"]) assert.ok(denied(hook("pre-tool-use", bash(cmd))), cmd);
+  for (const tool of ["Write", "Edit", "MultiEdit"]) {
+    for (const dirName of ["pins", "onboarding"]) {
+      assert.ok(denied(hook("pre-tool-use", { tool_name: tool, tool_input: { file_path: join(dir, "home", dirName, "acme__demo.json") } })), `${tool} ${dirName}`);
+    }
+  }
+  // Its own work is untouched.
+  assert.ok(!denied(hook("pre-tool-use", { tool_name: "Write", tool_input: { file_path: join(dir, "wt", "src", "a.ts") } })));
+  assert.ok(!denied(hook("pre-tool-use", bash("abt onboard probe"))));
+});

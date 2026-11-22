@@ -1,4 +1,5 @@
 import { test } from "node:test";
+import { readFileSync } from "node:fs";
 import assert from "node:assert/strict";
 import { FakeCodeHost } from "../src/codehost/fake.ts";
 import { MemoryTrees } from "../src/trees.ts";
@@ -11,8 +12,8 @@ const make = (host: FakeCodeHost) => new PrValidator({ host, plugin });
 const last = (h: FakeCodeHost) => h.statuses.at(-1)!;
 
 test("which paths count as abt files", () => {
-  for (const f of [".agents/abt/trees/implement.yaml", ".agents/abt/workflow.md", ".agents/abt/policy.yaml", ".agents/abt/checks/lint.sh"]) assert.ok(isAbtFile(f), f);
-  for (const f of ["src/index.ts", "README.md", ".agents/other/x.yaml"]) assert.ok(!isAbtFile(f), f);
+  for (const f of [".agents/abt/trees/implement.yaml", ".agents/abt/workflow.md", ".agents/abt/merge-policy.yaml", ".agents/abt/facts.yaml", ".agents/abt/checks/lint.sh"]) assert.ok(isAbtFile(f), f);
+  for (const f of ["src/index.ts", "README.md", ".agents/other/x.yaml", ".agents/abt/policy.yaml"]) assert.ok(!isAbtFile(f), f);
 });
 
 test("an invalid tree gets a failing abt/validate status carrying the file:line:col error", async () => {
@@ -79,12 +80,43 @@ test("a broken adapter doc fails with file:line:col", async () => {
   assert.match(last(host).status.description, /^\.agents\/abt\/workflow\.md:1:1 adapter doc has no YAML front matter/);
 });
 
-test("a policy file that is not valid YAML fails with its position", async () => {
+test("a merge policy that is not valid YAML fails with its position", async () => {
+  const host = new FakeCodeHost();
+  host.addPr("s", { ".agents/abt/merge-policy.yaml": "ok: 1\nbad: [unclosed\n" });
+  await make(host).sweep();
+  assert.equal(last(host).status.state, "failure");
+  assert.match(last(host).status.description, /^\.agents\/abt\/merge-policy\.yaml:\d+:\d+ /);
+});
+
+test("a merge policy that breaks the schema fails abt/validate", async () => {
+  const host = new FakeCodeHost();
+  host.addPr("s", { ".agents/abt/merge-policy.yaml": "mode: yolo\n" });
+  await make(host).sweep();
+  assert.equal(last(host).status.context, VALIDATE_CONTEXT);
+  assert.equal(last(host).status.state, "failure");
+  assert.match(last(host).status.description, /^\.agents\/abt\/merge-policy\.yaml:1:1 /);
+});
+
+test("the example merge policy passes", async () => {
+  const host = new FakeCodeHost();
+  host.addPr("s", { ".agents/abt/merge-policy.yaml": readFileSync(new URL("../docs/examples/merge-policy.yaml", import.meta.url), "utf8") });
+  await make(host).sweep();
+  assert.equal(last(host).status.state, "success");
+});
+
+test("a facts snapshot that is not valid YAML fails with its position", async () => {
+  const host = new FakeCodeHost();
+  host.addPr("s", { ".agents/abt/facts.yaml": "id: x\nbad: [unclosed\n" });
+  await make(host).sweep();
+  assert.equal(last(host).status.state, "failure");
+  assert.match(last(host).status.description, /^\.agents\/abt\/facts\.yaml:\d+:\d+ /);
+});
+
+test("a policy.yaml is not an abt file: the policy lives in merge-policy.yaml", async () => {
   const host = new FakeCodeHost();
   host.addPr("s", { ".agents/abt/policy.yaml": "ok: 1\nbad: [unclosed\n" });
   await make(host).sweep();
-  assert.equal(last(host).status.state, "failure");
-  assert.match(last(host).status.description, /^\.agents\/abt\/policy\.yaml:\d+:\d+ /);
+  assert.equal(host.statuses.length, 0);
 });
 
 test("check scripts need no validation but still get a passing status", async () => {
