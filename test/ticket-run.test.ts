@@ -8,6 +8,7 @@ import { FakeCodeHost } from "../src/codehost/fake.ts";
 import { FakeHarness, specWriter } from "../src/harness/fake.ts";
 import { DecisionLog } from "../src/log/store.ts";
 import { runTicket } from "../src/ticket-run.ts";
+import { MemoryPolicy } from "../src/landing/policy.ts";
 import { DirTrees, MemoryTrees } from "../src/trees.ts";
 import { InMemoryTracker } from "../src/tracker/fake.ts";
 import { FakeWorkspace } from "../src/workspace/fake.ts";
@@ -259,4 +260,45 @@ test("a successful run still removes its worktree even with keepFailed", async (
   const w = await world();
   await runTicket({ ...w.deps(), keepFailed: new FakeClock() });
   assert.equal(await w.workspace.find(w.id), undefined);
+});
+
+const agreedPolicy = (riskMap: string) => `version: 1
+gates: { required_checks: [can-merge], approvals: 1 }
+enforcement: server
+risk_cap: low
+mode: merge
+risk_map:
+${riskMap}
+facts: { default_branch: main }
+land_tree_hash: ${"a".repeat(64)}
+`;
+
+test("a path in the agreed risk map raises the floor of a ticket touching it", async () => {
+  const w = await world();
+  const t = await w.tracker.createTicket({ title: "fix: tweak the widget", body: "Change src/widgets/button.ts." });
+  const classifier = { classify: async () => ({ tier: "low" as const, confidence: 0.9, reasons: ["small"] }) };
+  const policy = new MemoryPolicy(agreedPolicy('  rules: [{ glob: "src/widgets/**", tier: high, reason: "owner agreed: widgets are sensitive" }]'));
+  await runTicket({ ...w.deps(), ticket: t.id, risk: { classifier }, policy });
+  const rec = w.log.read(t.id).find((x) => x.kind === "risk-assessment")!;
+  assert.equal(rec.payload.tier, "high");
+  assert.ok((rec.payload.reasons as string[]).some((r) => r.includes("widgets are sensitive")));
+});
+
+test("the agreed risk map's snake_case size thresholds apply too", async () => {
+  const w = await world();
+  const t = await w.tracker.createTicket({ title: "fix: tweak the widget", body: "Change src/widgets/button.ts." });
+  const classifier = { classify: async () => ({ tier: "low" as const, confidence: 0.9, reasons: ["small"] }) };
+  const policy = new MemoryPolicy(agreedPolicy("  max_files: 1"));
+  await runTicket({ ...w.deps(), ticket: t.id, risk: { classifier }, policy });
+  assert.equal((await w.tracker.readTicket(t.id)).risk, "low", "one named path is within max_files: 1");
+});
+
+test("a risk policy alone feeds the floors without switching landing on", async () => {
+  const w = await world();
+  const t = await w.tracker.createTicket({ title: "fix: tweak the widget", body: "Change src/widgets/button.ts." });
+  const classifier = { classify: async () => ({ tier: "low" as const, confidence: 0.9, reasons: ["small"] }) };
+  const riskPolicy = new MemoryPolicy(agreedPolicy('  rules: [{ glob: "src/widgets/**", tier: high, reason: "widgets" }]'));
+  const r = await runTicket({ ...w.deps(), ticket: t.id, risk: { classifier }, riskPolicy });
+  assert.equal(w.log.read(t.id).find((x) => x.kind === "risk-assessment")!.payload.tier, "high");
+  assert.ok(r.result !== "ok", "nothing merged");
 });

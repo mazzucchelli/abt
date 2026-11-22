@@ -4,11 +4,12 @@ import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { FakeClock } from "../../src/clock.ts";
-import { policyProblems } from "../../src/landing/policy.ts";
+import { policyProblems, riskMapOf } from "../../src/landing/policy.ts";
+import { isProtected } from "../../src/onboard/pins.ts";
 import { DecisionLog } from "../../src/log/store.ts";
 import { assessTicket } from "../../src/risk/assess.ts";
 import type { CoverageInput } from "../../src/risk/coverage.ts";
-import { parseRiskMap } from "../../src/risk/rules.ts";
+import { computeFloor, defaultRiskMap, parseRiskMap } from "../../src/risk/rules.ts";
 import { InMemoryTracker } from "../../src/tracker/fake.ts";
 
 async function world() {
@@ -87,4 +88,17 @@ test("touching one more uncovered file later does not refile the first gap", asy
   const boot = (await w.tracker.listByState("Todo")).filter((t) => t.workType === "bootstrap");
   assert.equal(boot.length, 2);
   assert.doesNotMatch(boot[1]!.body, /src\/vat\.ts/);
+});
+
+test("the agreed policy's risk_map reads into a RiskMap with its snake_case thresholds", () => {
+  const map = riskMapOf({ rules: [{ glob: "src/a/**", tier: "high", reason: "r" }], pairing: [{ glob: "src/a/**", checks: ["c.sh"] }], max_lines: 50, max_files: 3 });
+  assert.deepEqual(map, { rules: [{ glob: "src/a/**", tier: "high", reason: "r" }], pairing: [{ glob: "src/a/**", checks: ["c.sh"] }], maxLines: 50, maxFiles: 3 });
+  assert.deepEqual(riskMapOf(undefined), defaultRiskMap());
+});
+
+test("every protected abt path floors high, and the pins protect exactly those paths", () => {
+  for (const path of [".agents/abt/merge-policy.yaml", ".agents/abt/workflow.md", ".agents/abt/facts.yaml", ".agents/abt/trees/land.yaml", ".agents/abt/checks/lint.sh"]) {
+    assert.ok(isProtected(path), path);
+    assert.equal(computeFloor({ files: [{ path, added: 1, removed: 0 }] }).floor, "high", path);
+  }
 });

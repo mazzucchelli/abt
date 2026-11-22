@@ -13,6 +13,7 @@ import { FakeHarness } from "../../src/harness/fake.ts";
 import { FakeJudge } from "../../src/judge/fake.ts";
 import { DecisionLog } from "../../src/log/store.ts";
 import { FakeClock } from "../../src/clock.ts";
+import { GitPolicy } from "../../src/landing/policy.ts";
 import { assembleProject, serveProjects, type RealContext } from "../../src/runner/project.ts";
 import { Runner } from "../../src/runner/daemon.ts";
 import { runTicket } from "../../src/ticket-run.ts";
@@ -112,6 +113,8 @@ test("a served project wires the project's tracker, a git workspace, the Claude 
   const deps = p.deps("ABT-1");
   assert.ok(deps.harness instanceof ClaudeCodeAdapter);
   assert.ok(deps.codeHost instanceof GhCodeHost);
+  assert.ok(deps.riskPolicy instanceof GitPolicy, "the agreed risk map is read from the default branch");
+  assert.equal(deps.policy, undefined, "landing stays off: only the map is read");
   assert.deepEqual(deps.routing?.models, { sonnet: profile.models.sonnet, opus: profile.models.opus });
   assert.ok(deps.routing?.classifier);
   assert.ok(deps.risk?.classifier);

@@ -5,7 +5,7 @@ import { promisify } from "node:util";
 import { Ajv2020 } from "ajv/dist/2020.js";
 import { parse } from "yaml";
 import type { RiskTier } from "../tracker/contract.ts";
-import { FIXED_RULES, matches, type PairingOverride } from "../risk/rules.ts";
+import { defaultRiskMap, FIXED_RULES, matches, parseRiskMap, type PairingOverride, type RiskMap } from "../risk/rules.ts";
 
 const run = promisify(execFile);
 
@@ -28,6 +28,13 @@ export interface MergePolicy {
   facts: { default_branch: string; captured_at?: string; [k: string]: unknown };
   /** Hash of the land tree this policy was agreed with. A different land tree blocks merging. */
   land_tree_hash: string;
+}
+
+/** The merge policy's `risk_map` (snake_case, as onboarding writes it) as the assessor's RiskMap. */
+export function riskMapOf(raw: MergePolicy["risk_map"]): RiskMap {
+  if (!raw) return defaultRiskMap();
+  const { max_lines, max_files, ...rest } = raw;
+  return parseRiskMap({ ...rest, ...(max_lines !== undefined && { maxLines: max_lines }), ...(max_files !== undefined && { maxFiles: max_files }) });
 }
 
 const schema = JSON.parse(readFileSync(new URL("../../schema/merge-policy.schema.json", import.meta.url), "utf8"));

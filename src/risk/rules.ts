@@ -1,3 +1,4 @@
+import { PROTECTED_GLOBS } from "../protected-paths.ts";
 import { RISK_TIERS, type RiskTier } from "../tracker/contract.ts";
 
 /** One rule: files matching the glob set a floor of at least this tier. */
@@ -38,7 +39,7 @@ export const DEFAULT_RULES: RiskRule[] = [
   ...high("secrets", "**/secrets/**", "**/.env", "**/.env.*", "**/*.pem", "**/*.key", "**/credentials*"),
   ...high("CI, deploy or infra", ".github/**", ".gitlab-ci.yml", ".circleci/**", "**/Dockerfile*", "**/docker-compose*.yml", "**/*.tf", "**/terraform/**", "**/k8s/**", "**/deploy/**", "**/infra/**", "**/helm/**"),
   ...high("public API contract", "**/openapi*.yaml", "**/openapi*.yml", "**/openapi*.json", "**/swagger*.*", "**/*.proto", "**/*.graphql"),
-  ...high("merge policy, adapter doc or ADR", ".agents/abt/merge-policy.*", ".agents/abt/workflow.md", ".agents/abt/facts.yaml", ".agents/abt/trees/**", ".agents/abt/checks/**", "**/adr/**"),
+  ...high("merge policy, adapter doc or ADR", ...PROTECTED_GLOBS, "**/adr/**"),
   ...medium("lockfile", "**/package-lock.json", "**/yarn.lock", "**/pnpm-lock.yaml", "**/Cargo.lock", "**/go.sum", "**/poetry.lock", "**/Gemfile.lock", "**/composer.lock"),
   ...medium("tool config", "**/tsconfig*.json", "**/.eslintrc*", "**/eslint.config.*", "**/.prettierrc*", "**/prettier.config.*", "**/biome.json", "**/vite.config.*", "**/jest.config.*", "**/webpack.config.*", "**/.editorconfig", "**/.gitignore", "**/.nvmrc", "**/.node-version"),
   ...medium("generated file", "**/generated/**", "**/gen/**", "**/*.generated.*", "**/*.gen.*", "**/*.min.js", "**/*.pb.go"),
