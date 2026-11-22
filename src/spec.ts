@@ -100,9 +100,10 @@ export function specApproved(records: DecisionRecord[]): boolean {
   const after = records.slice(asked + 1);
   const rerun = after.findLastIndex((r) => r.kind === "override" && r.payload.target === "run");
   const live = after.slice(rerun + 1);
-  // An answer counts only for the spec ask: another escalation in between means it answered that one.
-  if (live.some((r) => r.kind === "escalation")) return false;
-  return live.some((r) => r.kind === "override" && r.payload.target === "escalation" && r.payload.by !== "runner");
+  // An answer counts only for the spec ask: another escalation before it means it answered that one. Once the
+  // owner has approved, a later escalation (an ask-point raised mid-implementation) does not undo the approval.
+  const first = live.find((r) => r.kind === "escalation" || (r.kind === "override" && r.payload.target === "escalation" && r.payload.by !== "runner"));
+  return first?.kind === "override";
 }
 
 /** Whether the owner was already asked and no re-run has reset it. */

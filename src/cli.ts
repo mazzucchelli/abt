@@ -93,8 +93,8 @@ async function main(argv: string[]): Promise<number> {
 /**
  * A worker (ABT_ROLE=worker) may write only its own ticket's ask-point, pivot and blocked records.
  * An ask-point it raises is open and carries no `handling`: only the runner settles one, so the PR's
- * "decided" section can't be fed by a worker. `raisesTo` is not part of the decision-log schema, so a
- * worker can't set it either; the runner owns that call until ABT-84 designs the field.
+ * "decided" section can't be fed by a worker. It may send `raisesTo`, the tier its recommendation would
+ * reach: that can only make the runner escalate, never skip an escalation.
  */
 function workerLogViolation(env: NodeJS.ProcessEnv, ticket: string, input: RecordInput): string | undefined {
   if (env.ABT_ROLE !== "worker") return undefined;

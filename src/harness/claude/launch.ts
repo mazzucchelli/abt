@@ -97,7 +97,7 @@ function workerBrief(procedure: string, pluginDir: string, ticket?: string): str
   const append = ticket ? `abt log append ${ticket}` : "abt log append <ticket>";
   return [
     `Start by invoking the abt procedure with the Skill tool: skill "abt:${procedure}". Follow it for this task.`,
-    `No human is present. Where the procedure says to ask, interview or confirm with the human, do not wait: raise an ask-point. Write one record with \`${append}\` (JSON on stdin: kind "ask-point", decision = the question, why, evidence, result "open", payload {question, recommended, reversible}), then hand back. You never set how it is handled: the runner applies the risk tier, deciding with your recommended answer or escalating to the human.`,
+    `No human is present. Where the procedure says to ask, interview or confirm with the human, do not wait: raise an ask-point. Write one record with \`${append}\` (JSON on stdin: kind "ask-point", decision = the question, why, evidence, result "open", payload {question, recommended, reversible}, plus raisesTo "high" when taking your recommendation would make this a high-risk change), then hand back. You never set how it is handled: the runner applies the risk tier, deciding with your recommended answer or escalating to the human.`,
     `Principles: the index is in your system prompt; read a principle's file under ${join(pluginDir, "principles")}/ only when its trigger fires. Reference files (codebase-design, writing-for-agents, experience-first) are under ${join(pluginDir, "reference")}/.`,
   ].join("\n\n");
 }

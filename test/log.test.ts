@@ -145,6 +145,17 @@ test("a worker may append ask-point, pivot and blocked records only", () => {
   assert.equal(abt(["log", "append", "T-3"], nodeOutcome()).status, 0, "without the worker role any kind is accepted");
 });
 
+test("a worker may send raisesTo with its open ask-point", () => {
+  const { file } = setup();
+  const home = file("X").replace(/\/log\/X\.jsonl$/, "");
+  const r = spawnSync("bin/abt", ["log", "append", "T-1"], {
+    encoding: "utf8",
+    input: JSON.stringify(nodeOutcome({ kind: "ask-point", decision: "d", result: "open", payload: { question: "q", recommended: "r", reversible: true, raisesTo: "high" } })),
+    env: { ...process.env, ABT_HOME: home, ABT_ROLE: "worker", ABT_TICKET: "T-1" },
+  });
+  assert.equal(r.status, 0, r.stderr);
+});
+
 test("a worker cannot settle its own ask-point: handling or a non-open result is refused", () => {
   const { file } = setup();
   const worker = (input: unknown) => {
@@ -161,8 +172,8 @@ test("a worker cannot settle its own ask-point: handling or a non-open result is
     assert.equal(r.status, 1);
     assert.match(r.stderr, /handling/);
   }
-  const raises = worker(nodeOutcome({ kind: "ask-point", decision: "d", result: "open", payload: { ...payload, raisesTo: "low" } }));
-  assert.equal(raises.status, 1, "raisesTo is not a worker-settable field until ABT-84 adds it to the schema");
+  const raises = worker(nodeOutcome({ kind: "ask-point", decision: "d", result: "open", payload: { ...payload, raisesTo: "extreme" } }));
+  assert.equal(raises.status, 1, "raisesTo must be a tier");
   const settled = worker(nodeOutcome({ kind: "ask-point", decision: "d", result: "ok", payload }));
   assert.equal(settled.status, 1);
   assert.match(settled.stderr, /open/);

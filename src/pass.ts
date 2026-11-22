@@ -11,7 +11,7 @@ import type { DecisionLog } from "./log/store.ts";
 import { parseTree, type TreeNode } from "./tree.ts";
 import type { TreeStore } from "./trees.ts";
 import { DEFAULT_SCRIPT_TIMEOUT_MS, runScript } from "./script.ts";
-import { decidedAskPointsSection, escalate as escalateAskPoint } from "./escalation.ts";
+import { askPointPolicy, decidedAskPointsSection, escalate as escalateAskPoint, handleAskPoint, unsettledAskPoints } from "./escalation.ts";
 import type { Notifier } from "./notify/contract.ts";
 import { SPEC_APPROVAL_QUESTION, SPEC_LINK, SPEC_COMMENT, specApproved, specApprovalAsked, specSkipLogged, validateSpec } from "./spec.ts";
 import { fileBootstrap } from "./risk/bootstrap.ts";
@@ -402,6 +402,13 @@ class Pass {
       return { result: "fail", why: "refused: a high-risk ticket's spec must be approved by the owner before any implementation worker runs" };
     }
     const session = this.#runningWorker(node.id);
+    // The worker handed back with ask-points open: the runner settles them now, at the ticket's current tier.
+    let settled: string[] = [];
+    if (session) {
+      const s = await this.#settleAskPoints(node.id, t);
+      if (s.waiting) return { result: "running", why: s.waiting, worker: session };
+      settled = s.answers;
+    }
     let model: string;
     let effort: string;
     if (session) {
@@ -433,7 +440,7 @@ class Pass {
     }
     const out = await harness.run({
       procedure: node.name,
-      prompt: promptFor(t, this.#rejection(), this.#ownerAnswer(), openConflict(this.#d.log.read(ticket))?.why, node.name === SPEC_AGENT ? this.#specBrief() : undefined),
+      prompt: promptFor(t, this.#rejection(), this.#ownerAnswer(), openConflict(this.#d.log.read(ticket))?.why, node.name === SPEC_AGENT ? this.#specBrief() : undefined, settled),
       worktree,
       model,
       effort,
@@ -444,7 +451,41 @@ class Pass {
       ...(session && { session }),
       ...(this.#d.envs && { env: this.#d.envs.allocate(ticket, worktree).vars }),
     });
+    // A worker that hands back with a question open is not done: the next pass settles it and resumes the session.
+    const open = unsettledAskPoints(this.#d.log.read(ticket)).filter((r) => r.node === node.id);
+    if (out.result === "ok" && open.length > 0) {
+      return { result: "running", why: `handed back with ${open.length} open ask-point(s); the runner settles them next pass`, worker: out.sessionId, evidence: out.transcriptPath };
+    }
     return { result: out.result, why: out.exitStatus === null ? out.why : `${out.why} (exit ${out.exitStatus})`, worker: out.sessionId, evidence: out.transcriptPath, ...(out.usageLimit && { usageLimit: out.usageLimit }) };
+  }
+
+  /**
+   * Settles the open ask-points this node's worker left, each with the policy at the ticket's tier. A decided one
+   * writes the settled record that supersedes the open one and yields the recommended answer for the resumed worker.
+   * An escalating one goes first and alone, through the escalation path: the ticket is in Needs you and the worker
+   * waits for the owner. Anything still open is settled on a later pass.
+   */
+  async #settleAskPoints(node: string, t: Ticket): Promise<{ waiting?: string; answers: string[] }> {
+    const { log, tracker, ticket } = this.#d;
+    const open = unsettledAskPoints(log.read(ticket)).filter((r) => r.node === node);
+    if (open.length === 0) return { answers: [] };
+    const tier = effectiveTier(log.read(ticket))?.tier ?? t.risk ?? "medium";
+    const toAsk = (r: (typeof open)[number]) => ({
+      question: r.payload.question, recommended: r.payload.recommended, evidence: r.evidence ?? log.path(ticket), reversible: r.payload.reversible,
+      ...(r.payload.raisesTo && { raisesTo: r.payload.raisesTo }),
+    });
+    const escalating = open.find((r) => askPointPolicy(tier, toAsk(r)).handling === "escalated");
+    const deps = { tracker, log, ...(this.#d.notifier && { notifier: this.#d.notifier }) };
+    if (escalating) {
+      await handleAskPoint(deps, { ticket, run: this.#run, node, askPoint: toAsk(escalating), supersedes: escalating.id });
+      return { waiting: `escalated an ask-point: waiting for the owner's answer to "${escalating.payload.question}"`, answers: [] };
+    }
+    const answers: string[] = [];
+    for (const r of open) {
+      const h = await handleAskPoint(deps, { ticket, run: this.#run, node, askPoint: toAsk(r), supersedes: r.id });
+      answers.push(`${r.payload.question} ${h.answer}`);
+    }
+    return { answers };
   }
 
   /** Facts that live on the ticket and the project's settings, not on the code host. Undefined for any other check. */
@@ -651,10 +692,11 @@ function specSection(records: DecisionRecord[], links: { title: string; url: str
   return link ? `## Spec\n[${SPEC_LINK}](${link.url}): approving this PR approves the spec.` : "";
 }
 
-function promptFor(t: Ticket, rejected?: string, answered?: string, conflict?: string, specBrief?: string): string {
+function promptFor(t: Ticket, rejected?: string, answered?: string, conflict?: string, specBrief?: string, settled: string[] = []): string {
   const brief = t.workType === "research" ? RESEARCH_BRIEF : "";
   const redo = rejected ? `A reviewer rejected the previous findings: ${rejected}\nRevise them to address this.` : "";
   const answer = answered ? `The ticket owner answered your question: ${answered}` : "";
   const rebase = conflict ? `Another PR landed and this branch no longer rebases cleanly onto the default branch: ${conflict}.\nRebase the branch onto the default branch, resolve the conflict and keep the change working.` : "";
-  return [`${t.title}\n\n${t.body}`.trim(), brief, specBrief ?? "", redo, answer, rebase].filter((p) => p !== "").join("\n\n");
+  const decided = settled.length > 0 ? `The runner settled your ask-points with your recommended answers; proceed with them:\n${settled.map((a) => `- ${a}`).join("\n")}` : "";
+  return [`${t.title}\n\n${t.body}`.trim(), brief, specBrief ?? "", redo, answer, decided, rebase].filter((p) => p !== "").join("\n\n");
 }
