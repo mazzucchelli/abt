@@ -133,11 +133,11 @@ export class Runner {
       await this.#guardStart();
       this.#stops.push(this.#d.workers.onExit((ticket) => this.#track(this.nudge(ticket).then(() => undefined), "worker exit")));
       this.#stops.push(this.#d.timers.every(HEARTBEAT_MS, () => this.#lock.heartbeat()));
-      this.#stops.push(this.#d.timers.every(POLL_MS, () => this.#track(this.#poll(), "poll")));
+      this.#stops.push(this.#d.timers.every(POLL_MS, () => this.#track(this.#tick("poll"), "poll")));
       this.#stops.push(this.#d.timers.every(SCAN_MS, () => this.#track(this.#scan(), "scan")));
       if (this.#d.socketPath) this.#server = await listenForNudges(this.#d.socketPath, (t) => this.nudge(t));
       // A tracker outage at boot is logged and retried by the next poll and scan, not fatal.
-      this.#track(this.#poll(), "poll");
+      this.#track(this.#tick("poll"), "poll");
       this.#track(this.#scan(), "scan");
     } catch (e) {
       await this.stop();
@@ -189,11 +189,6 @@ export class Runner {
       }
     }
     return undefined;
-  }
-
-  /** Waiting tickets and in-flight trees. */
-  #poll(): Promise<void> {
-    return this.#tick("poll");
   }
 
   /** New work: abt-marked Todo tickets enqueued while the runner was busy or down. */

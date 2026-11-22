@@ -27,7 +27,7 @@ function frontmatter(text: string): Record<string, string> | undefined {
 }
 
 const PROCEDURES = [
-  "implement", "tdd", "code-review", "diagnosing-bugs", "research", "spike", "pr", "refactoring",
+  "implement", "tdd", "code-review", "diagnosing-bugs", "research", "spike", "pr",
   "setup-pre-commit", "setup-ts-deep-modules", "grilling", "domain-modeling", "spec-writing", "ticket-splitting", "triaging",
 ];
 const COMMANDS = ["enqueue", "grill-with-docs", "onboard", "to-spec", "to-tickets", "triage"];

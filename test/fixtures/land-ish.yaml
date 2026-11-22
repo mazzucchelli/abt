@@ -3,7 +3,7 @@ seq:
   - action: claim
   - ensure:
       cond:
-        check: required-checks-green
+        check: pr-exists
       else:
         action: open-pr
   - check: branch-up-to-date

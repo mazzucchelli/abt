@@ -14,7 +14,6 @@
     "./procedures/research",
     "./procedures/spike",
     "./procedures/pr",
-    "./procedures/refactoring",
     "./procedures/setup-pre-commit",
     "./procedures/setup-ts-deep-modules",
     "./procedures/grilling",

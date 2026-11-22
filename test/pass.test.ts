@@ -60,7 +60,7 @@ test("a passing check, read from world facts, succeeds", async () => {
 
 test("a check whose fact is unknown is inconclusive", async () => {
   const w = await world();
-  assert.equal((await w.pass("check: feedback-check")).result, "inconclusive");
+  assert.equal((await w.pass("check: branch-up-to-date")).result, "inconclusive");
 });
 
 test("seq runs children in order, stops at the first failure and skips the rest", async () => {
@@ -95,11 +95,10 @@ fallback:
 test("fallback fails when every child fails", async () => {
   const w = await world();
   w.codeHost.setCheck(w.ticket, "branch-up-to-date", false);
-  w.codeHost.setCheck(w.ticket, "required-checks-green", false);
   const r = await w.pass(`
 fallback:
   - check: branch-up-to-date
-  - check: required-checks-green
+  - check: pr-exists
 `);
   assert.equal(r.result, "fail");
 });
@@ -130,11 +129,11 @@ test("an unknown action fails and says so", async () => {
 
 test("ensure succeeds without acting when the condition already holds", async () => {
   const w = await world();
-  w.codeHost.setCheck(w.ticket, "required-checks-green", true);
+  w.codeHost.setCheck(w.ticket, "branch-up-to-date", true);
   const r = await w.pass(`
 ensure:
   cond:
-    check: required-checks-green
+    check: branch-up-to-date
   else:
     action: open-pr
 `);
@@ -145,11 +144,11 @@ ensure:
 
 test("ensure runs the else branch and then re-checks, so success means the condition holds", async () => {
   const w = await world();
-  w.codeHost.setCheck(w.ticket, "required-checks-green", false);
+  w.codeHost.setCheck(w.ticket, "branch-up-to-date", false);
   const r = await w.pass(`
 ensure:
   cond:
-    check: required-checks-green
+    check: branch-up-to-date
   else:
     action: open-pr
 `);
@@ -162,17 +161,17 @@ test("ensure succeeds when the else branch makes the condition true", async () =
   const w = await world();
   await w.claim();
   w.harness.script("fixer", { result: "ok" });
-  w.codeHost.setCheck(w.ticket, "feedback-check", false);
+  w.codeHost.setCheck(w.ticket, "branch-up-to-date", false);
   // the fake harness flips the fact as a side effect of the worker, via the code host
   const orig = w.harness.run.bind(w.harness);
   w.harness.run = async (req) => {
-    w.codeHost.setCheck(w.ticket, "feedback-check", true);
+    w.codeHost.setCheck(w.ticket, "branch-up-to-date", true);
     return orig(req);
   };
   const r = await w.pass(`
 ensure:
   cond:
-    check: feedback-check
+    check: branch-up-to-date
   else:
     agent: fixer
 `);
@@ -197,11 +196,11 @@ seq:
 
 test("ensure expands into stable path IDs: fallback, then seq[else, cond]", async () => {
   const w = await world();
-  w.codeHost.setCheck(w.ticket, "required-checks-green", false);
+  w.codeHost.setCheck(w.ticket, "branch-up-to-date", false);
   await w.pass(`
 ensure:
   cond:
-    check: required-checks-green
+    check: branch-up-to-date
   else:
     action: cleanup
 `);
@@ -216,14 +215,14 @@ ensure:
 
 test("a second pass over an unchanged world reaches the same result from the log and facts alone", async () => {
   const w = await world();
-  w.codeHost.setCheck(w.ticket, "required-checks-green", true);
+  w.codeHost.setFacts(w.ticket, { pr: "https://github.com/o/r/pull/1" });
   w.codeHost.setCheck(w.ticket, "branch-up-to-date", false);
   const tree = `
 seq:
   - action: claim
   - ensure:
       cond:
-        check: required-checks-green
+        check: pr-exists
       else:
         action: open-pr
   - check: branch-up-to-date
