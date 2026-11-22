@@ -56,7 +56,9 @@ Domain terms for the AI workflow. Definitions only, no implementation detail.
 
 **Verification**: Evidence, gathered by the agent, that a change works: tests, e2e, visual regression, screenshots of the running app, and CI.
 
-**Escalation**: The agent stopping to ask the human for a confirmation or decision, because the risk of continuing alone is too high. It sets the ticket to Needs you, posts one ask-point comment and sends a content-free push (the ticket and its link only). Silence is never consent: a timeout only sends a reminder.
+**Escalation**: The agent stopping to ask the human for a confirmation or decision, because the risk of continuing alone is too high. It sets the ticket to Needs you, posts one ask-point comment and rings the doorbell. Silence is never consent: a timeout only sends a reminder, which rings the doorbell again.
+
+**Doorbell**: What tells the human a ticket needs them. It is the tracker's own notification of the ask-point comment, which carries that comment's text. An out-of-band push can be added alongside it; that push is content-free (the ticket and its link only). The doorbell only says "look": the ticket's comments carry the question and the reply.
 
 **Owner reply**: A comment from the ticket's owner on a Needs you ticket, the only comments the runner acts on. The vocabulary is fixed: answer (a bare "yes" accepts the recommendation), abandon, re-run, raise tier. Anything else is logged as a note and does not resume the ticket.
 
