@@ -16,7 +16,7 @@ A **wiring ticket** (one that connects real adapters into the runner, such as se
 
 ## Splitting
 
-When `ticket-splitting` meets work that needs both a contract and a real adapter, it makes two tickets:
+When breaking down work that needs both a contract and a real adapter, make two tickets:
 
 1. **Contract + fake**: Done against the fake. Its title says "contract" or "fake", never the capability itself.
 2. **Real adapter + wiring**: blocked by the first, and carries the criteria above.
