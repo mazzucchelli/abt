@@ -4,8 +4,13 @@ import { execFileSync } from "node:child_process";
 import { existsSync, mkdirSync, mkdtempSync, realpathSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { stringify } from "yaml";
+import { systemExec, type Exec } from "../../src/codehost/exec.ts";
 import { FakeCodeHost } from "../../src/codehost/fake.ts";
-import { GhCodeHost } from "../../src/codehost/gh.ts";
+import { snapshotFacts } from "../../src/landing/drift.ts";
+import { soloPrivateFacts } from "../../src/onboard/fake.ts";
+import { FakeGh } from "../codehost/fake-gh.ts";
+import { GhCodeHost, revertBranch } from "../../src/codehost/gh.ts";
 import { ClaudeCodeAdapter } from "../../src/harness/claude/adapter.ts";
 import { parseLaunchProfile } from "../../src/harness/claude/profile.ts";
 import type { SpawnSpec } from "../../src/harness/claude/spawn.ts";
@@ -194,4 +199,43 @@ test("a Todo ticket in a served project is claimed and its worker is launched in
   assert.notEqual((await ctx.tracker.readTicket(created.id)).state, "Todo");
   assert.ok(harness.requests.length > 0, "a worker was launched");
   assert.ok(harness.requests[0]!.worktree.startsWith(join(home, "worktrees", "demo")), harness.requests[0]!.worktree);
+});
+
+test("with a real project in the config, the post-merge watch reads main-branch jobs through the real MainHost and opens an unmerged revert PR", async () => {
+  const { home, repo, entry } = project();
+  const policy = stringify({
+    version: 1,
+    gates: { required_checks: ["can-merge"], approvals: 1 },
+    enforcement: "self",
+    compensating_controls: ["runner-sole-merger", "head-sha-recheck"],
+    risk_cap: "low",
+    mode: "merge",
+    evidence: { self_certification: false },
+    risk_map: { rules: [], max_lines: 400, max_files: 15 },
+    facts: { default_branch: "main", captured_at: "2026-11-20T00:00:00Z", ...snapshotFacts(soloPrivateFacts()) },
+    land_tree_hash: "0".repeat(64),
+  });
+  mkdirSync(join(repo, ".agents", "abt"), { recursive: true });
+  writeFileSync(join(repo, ".agents", "abt", "merge-policy.yaml"), policy);
+  execFileSync("git", ["-C", repo, "add", "."]);
+  execFileSync("git", ["-C", repo, "-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "-m", "policy"]);
+  execFileSync("git", ["-C", repo, "update-ref", "refs/remotes/origin/main", "HEAD"]);
+
+  // GitHub and the revert's git work are in memory; the project's own checkout answers the rest of git.
+  const gh = new FakeGh("acme/demo");
+  const exec: Exec = (cmd, args, opts) => (cmd === "gh" || args[0] === "-c" ? gh.exec(cmd, args, opts) : systemExec(cmd, args, opts));
+  const ctx = context(home, { exec });
+  const [real] = (await serveProjects([entry], ctx)).projects;
+  assert.ok(real?.guard);
+  assert.ok(real.deps("ABT-1").guard);
+
+  const sha = gh.land();
+  await real.guard.recordMerge({ ticket: "ABT-9", sha, pr: "https://github.com/acme/demo/pull/9" });
+  gh.statuses.set(sha, [{ context: "can-merge", state: "failure", description: "" }]);
+  await real.guard.watch();
+
+  assert.ok(gh.calls.some((c) => c.join(" ").includes(`commits/${sha}/check-runs`)), "main jobs were read through gh");
+  assert.deepEqual(gh.prsFrom(revertBranch(sha)).map((p) => p.merged), [false]);
+  assert.ok(!gh.calls.some((c) => c[1] === "pr" && c[2] === "merge"));
+  assert.equal((await ctx.tracker.listByState("Needs you")).length, 1);
 });

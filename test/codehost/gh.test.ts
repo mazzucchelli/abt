@@ -2,9 +2,10 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { readdirSync, readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
-import { GhCodeHost } from "../../src/codehost/gh.ts";
+import { GhCodeHost, GhShapeError, revertBranch } from "../../src/codehost/gh.ts";
 import { HeadMovedError } from "../../src/codehost/contract.ts";
 import { codeHostContractSuite, type CodeHostWorld } from "./contract-suite.ts";
+import { mainHostContractSuite, type MainHostWorld } from "./main-host-suite.ts";
 import { FakeGh } from "./fake-gh.ts";
 
 const branchOf = (ticket: string) => ({ branch: `feat/${ticket}`, title: `feat: ${ticket}` });
@@ -27,11 +28,69 @@ codeHostContractSuite("gh code host (in-memory gh)", (): CodeHostWorld => {
   };
 });
 
+// The MainHost suite against the adapter, with `gh` and `git` replaced by an in-memory GitHub.
+mainHostContractSuite("gh main host (in-memory gh)", (): MainHostWorld => {
+  const gh = new FakeGh();
+  const host = new GhCodeHost({ repo: gh.slug, defaultBranch: gh.base, locate: branchOf, exec: gh.exec, checkout: "/clone" });
+  return {
+    host,
+    async commit() {
+      return gh.land();
+    },
+    async report(sha, job, state) {
+      if (state === "pending") gh.checkRuns.set(sha, [...(gh.checkRuns.get(sha) ?? []), { name: job, status: "in_progress", conclusion: null }]);
+      else gh.statuses.set(sha, [...(gh.statuses.get(sha) ?? []), { context: job, state, description: "" }]);
+    },
+    async reverts(sha) {
+      return gh.prsFrom(revertBranch(sha));
+    },
+  };
+});
+
 // The same suite against a sandbox GitHub repo. It creates branches and PRs there and merges into its default branch.
 // Real run: ABT_TEST_GITHUB=1 ABT_TEST_GITHUB_REPO=<owner/name of a sandbox repo> with `gh` signed in.
 const live = process.env.ABT_TEST_GITHUB === "1";
 const sandbox = process.env.ABT_TEST_GITHUB_REPO;
 codeHostContractSuite("gh code host (sandbox repo)", () => liveWorld(sandbox!), { skip: !live || !sandbox ? "set ABT_TEST_GITHUB=1 and ABT_TEST_GITHUB_REPO to run against a sandbox repo" : false });
+
+// Creates commits on the sandbox's default branch and opens revert PRs there (never merged; closed and removed at the end).
+mainHostContractSuite("gh main host (sandbox repo)", () => liveMainWorld(sandbox!), { skip: !live || !sandbox ? "set ABT_TEST_GITHUB=1 and ABT_TEST_GITHUB_REPO to run against a sandbox repo" : false });
+
+async function liveMainWorld(repo: string): Promise<MainHostWorld> {
+  const { systemExec } = await import("../../src/codehost/exec.ts");
+  const { mkdtempSync, rmSync } = await import("node:fs");
+  const { tmpdir } = await import("node:os");
+  const gh = async (...args: string[]) => JSON.parse(await systemExec("gh", args)) as Record<string, any>;
+  const defaultBranch = (await gh("api", `repos/${repo}`))["default_branch"] as string;
+  const dir = mkdtempSync(join(tmpdir(), "abt-main-contract-"));
+  const clone = join(dir, "clone");
+  await systemExec("gh", ["repo", "clone", repo, clone]);
+  const host = new GhCodeHost({ repo, defaultBranch, locate: (t) => ({ branch: `abt-contract/${t}`, title: `test: ${t}` }), checkout: clone });
+  const landed: string[] = [];
+  return {
+    host,
+    async commit() {
+      const res = await gh("api", "-X", "PUT", `repos/${repo}/contents/abt-contract/main-${Date.now()}-${Math.random().toString(36).slice(2, 8)}.txt`, "-f", "message=test: contract", "-f", `content=${Buffer.from("x").toString("base64")}`, "-f", `branch=${defaultBranch}`);
+      landed.push(res["commit"].sha as string);
+      return res["commit"].sha as string;
+    },
+    async report(sha, job, state) {
+      await systemExec("gh", ["api", "-X", "POST", `repos/${repo}/statuses/${sha}`, "-f", `state=${state}`, "-f", `context=${job}`]);
+    },
+    async reverts(sha) {
+      const rows = JSON.parse(await systemExec("gh", ["pr", "list", "--repo", repo, "--head", revertBranch(sha), "--state", "all", "--json", "url,state"])) as { url: string; state: string }[];
+      return rows.map((r) => ({ url: r.url, merged: r.state === "MERGED" }));
+    },
+    async cleanup() {
+      for (const sha of landed) {
+        const rows = JSON.parse(await systemExec("gh", ["pr", "list", "--repo", repo, "--head", revertBranch(sha), "--state", "open", "--json", "number"])) as { number: number }[];
+        for (const r of rows) await systemExec("gh", ["pr", "close", String(r.number), "--repo", repo]).catch(() => undefined);
+        await systemExec("gh", ["api", "-X", "DELETE", `repos/${repo}/git/refs/heads/abt/revert-${sha}`]).catch(() => undefined);
+      }
+      rmSync(dir, { recursive: true, force: true });
+    },
+  };
+}
 
 async function liveWorld(repo: string): Promise<CodeHostWorld> {
   const { systemExec } = await import("../../src/codehost/exec.ts");
@@ -223,4 +282,62 @@ test("no caller outside src/codehost shells out to gh for PR operations", () => 
   };
   walk("src");
   assert.deepEqual(offenders, []);
+});
+
+test("mainJobs: a name reported by a check run and a status keeps its worst result, and a wrong shape is a GhShapeError", async () => {
+  const gh = new FakeGh();
+  const host = new GhCodeHost({ repo: gh.slug, defaultBranch: gh.base, locate: branchOf, exec: gh.exec });
+  const sha = gh.land();
+  gh.checkRuns.set(sha, [{ name: "test", status: "completed", conclusion: "success" }, { name: "lint", status: "completed", conclusion: "skipped" }]);
+  gh.statuses.set(sha, [{ context: "test", state: "failure", description: "" }]);
+  assert.deepEqual(await host.mainJobs(sha), { test: { state: "failure", sha }, lint: { state: "success", sha } });
+  gh.override = (line) => (line.includes("/check-runs") ? "[[{\"check_runs\": 3}]]" : undefined);
+  await assert.rejects(host.mainJobs(sha), GhShapeError);
+});
+
+test("openRevertPr reverts on a branch named by the commit, pushes only that branch and never merges", async () => {
+  const gh = new FakeGh();
+  const host = new GhCodeHost({ repo: gh.slug, defaultBranch: gh.base, locate: branchOf, exec: gh.exec, checkout: "/clone" });
+  const sha = gh.land();
+  const url = await host.openRevertPr(sha, { title: "Revert it", body: "because" });
+  assert.equal(gh.pr(1).title, "Revert it");
+  assert.equal(gh.pr(1).body, "because");
+  assert.equal(gh.pr(1).base, "main");
+  assert.equal(gh.pr(1).head, revertBranch(sha));
+  assert.equal(url, `https://github.com/me/sandbox/pull/1`);
+  const pushes = gh.gitCalls.filter((c) => c.args.includes("push")).map((c) => c.args.at(-1));
+  assert.deepEqual(pushes, [`HEAD:refs/heads/abt/revert-${sha}`]);
+  assert.ok(gh.gitCalls.every((c) => c.cwd !== undefined));
+  assert.ok(!gh.calls.some((c) => c[0] === "gh" && c[1] === "pr" && c[2] === "merge"));
+  // The revert is made in a worktree of its own, not in the clone's working tree.
+  const revert = gh.gitCalls.find((c) => c.args.includes("revert"))!;
+  assert.notEqual(revert.cwd, "/clone");
+});
+
+test("openRevertPr: a merge commit is reverted against its first parent; a revert that conflicts, or a commit not on the default branch, is an error and pushes nothing", async () => {
+  const gh = new FakeGh();
+  const host = new GhCodeHost({ repo: gh.slug, defaultBranch: gh.base, locate: branchOf, exec: gh.exec, checkout: "/clone" });
+  const merge = gh.land(2);
+  await host.openRevertPr(merge, { title: "t", body: "b" });
+  assert.deepEqual(gh.gitCalls.find((c) => c.args.includes("revert"))!.args.slice(-3), ["-m", "1", merge]);
+
+  const bad = gh.land();
+  gh.conflicting.add(bad);
+  await assert.rejects(host.openRevertPr(bad, { title: "t", body: "b" }), /conflicts/);
+  await assert.rejects(host.openRevertPr("elsewhere", { title: "t", body: "b" }), /not on main/);
+  assert.equal(gh.headOf(revertBranch(bad)), undefined);
+  assert.equal(gh.headOf(revertBranch("elsewhere")), undefined);
+});
+
+test("openRevertPr: a branch pushed by a call that failed before opening its PR gets its PR without a second revert; without a checkout it says so", async () => {
+  const gh = new FakeGh();
+  const host = new GhCodeHost({ repo: gh.slug, defaultBranch: gh.base, locate: branchOf, exec: gh.exec, checkout: "/clone" });
+  const sha = gh.land();
+  gh.pushBranch(revertBranch(sha));
+  await host.openRevertPr(sha, { title: "t", body: "b" });
+  assert.ok(!gh.gitCalls.some((c) => c.args.includes("revert")));
+  assert.equal(gh.prsFrom(revertBranch(sha)).length, 1);
+
+  const bare = new GhCodeHost({ repo: gh.slug, defaultBranch: gh.base, locate: branchOf, exec: gh.exec });
+  await assert.rejects(bare.openRevertPr(gh.land(), { title: "t", body: "b" }), /local checkout/);
 });
