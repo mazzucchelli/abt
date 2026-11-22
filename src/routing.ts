@@ -1,4 +1,4 @@
-import type { DecisionRecord } from "./log/record.ts";
+import { ofKind, type DecisionRecord } from "./log/record.ts";
 import type { DecisionLog } from "./log/store.ts";
 import { HUMAN_NOT, effectiveTier } from "./risk/assess.ts";
 import { computeFloor, defaultRiskMap, pathsIn, type Diff, type RiskMap } from "./risk/rules.ts";
@@ -103,7 +103,7 @@ export function gradeFloor(ticket: Ticket, opts: { diff?: Diff; map?: RiskMap; t
 
   const { hits } = computeFloor({ files: opts.diff ? opts.diff.files : files.map((path) => ({ path, added: 0, removed: 0 })), ...(opts.diff?.patch !== undefined && { patch: opts.diff.patch }), intake: opts.diff === undefined }, opts.map ?? defaultRiskMap());
   for (const h of hits) {
-    if (/^new dependency/.test(h.reason)) raise("standard", `${h.path}: ${h.reason}`);
+    if (h.newDependency) raise("standard", `${h.path}: ${h.reason}`);
     else if (h.path !== null && h.tier !== "low") raise("standard", `${h.path}: risk-map surface, ${h.reason}`);
   }
   return { grade, reasons, facts };
@@ -168,10 +168,10 @@ export interface Route {
 function parseJudgement(x: unknown): GradeJudgement | undefined {
   if (typeof x !== "object" || x === null) return undefined;
   const o = x as Record<string, unknown>;
-  if (!GRADES.includes(o.grade as Grade)) return undefined;
+  if (!isGrade(o.grade)) return undefined;
   if (typeof o.confidence !== "number" || !Number.isFinite(o.confidence) || o.confidence < 0 || o.confidence > 1) return undefined;
   if (!Array.isArray(o.reasons) || !o.reasons.every((r) => typeof r === "string")) return undefined;
-  return { grade: o.grade as Grade, confidence: o.confidence, reasons: o.reasons as string[] };
+  return { grade: o.grade, confidence: o.confidence, reasons: o.reasons };
 }
 
 function withTimeout<T>(p: Promise<T>, ms: number): Promise<T> {
@@ -194,7 +194,11 @@ const live = (records: DecisionRecord[]): DecisionRecord[] => {
   return records.filter((r) => !superseded.has(r.id));
 };
 
-const isGradeOverride = (r: DecisionRecord) => r.kind === "override" && r.payload.target === "grade" && GRADES.includes(r.payload.value as Grade);
+const isGrade = (x: unknown): x is Grade => GRADES.some((g) => g === x);
+
+/** A grade override: who set it and to what. */
+const gradeOverride = (r: DecisionRecord): { by: string; grade: Grade } | undefined =>
+  r.kind === "override" && r.payload.target === "grade" && isGrade(r.payload.value) ? { by: r.payload.by, grade: r.payload.value } : undefined;
 
 /**
  * Chooses the grade, and with it the model and effort, for the next worker launch.
@@ -211,20 +215,19 @@ export async function routeWorker(deps: RoutingDeps, req: { ticket: Ticket; reco
     grade, model: models[LEVELS[grade].family], effort: LEVELS[grade].effort, minModelFromRisk, ...rest,
   });
 
-  const overrideAt = records.findLastIndex(isGradeOverride);
-  const override = overrideAt >= 0 ? records[overrideAt]! : undefined;
+  const override = records.flatMap((r) => gradeOverride(r) ?? []).at(-1);
   const humanResetAt = records.findLastIndex((r) => r.kind === "override" && r.payload.by !== "runner");
   const sinceReset = records.slice(Math.max(humanResetAt, records.findLastIndex((r) => r.kind === "node-outcome" && r.payload.nodeKind === "agent" && r.result === "ok")) + 1);
   const failures = sinceReset.filter((r) => r.kind === "node-outcome" && r.payload.nodeKind === "agent" && r.result === "fail").length;
 
-  const prior = records.findLast((r) => r.kind === "routing" && GRADES.includes(r.payload.base as Grade));
+  const prior = ofKind(records, "routing").flatMap((r) => (r.payload.base ? [{ base: r.payload.base, judged: r.payload.judged }] : [])).at(-1);
   let base: Grade;
   let judged: Grade | undefined;
   let judgeRaised = false;
   let why: string[];
   if (prior) {
-    base = prior.payload.base as Grade;
-    judged = GRADES.includes(prior.payload.judged as Grade) ? (prior.payload.judged as Grade) : undefined;
+    base = prior.base;
+    judged = prior.judged;
     judgeRaised = judged !== undefined && judged === base;
     why = [`base grade ${base} from the earlier routing`];
   } else {
@@ -262,8 +265,7 @@ export async function routeWorker(deps: RoutingDeps, req: { ticket: Ticket; reco
   }
 
   if (override) {
-    const by = String(override.payload.by);
-    const grade = override.payload.value as Grade;
+    const { by, grade } = override;
     return route(grade, { base, ...(judged && { judged }), steps: 0, source: "override", why: `grade ${grade} set by ${by}; a human override wins`, exhausted: false });
   }
 

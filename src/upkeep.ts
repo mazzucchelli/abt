@@ -1,5 +1,5 @@
 import { escalate } from "./escalation.ts";
-import type { DecisionRecord } from "./log/record.ts";
+import { ofKind, type DecisionRecord, type NotePayload, type NoteRecord } from "./log/record.ts";
 import type { DecisionLog } from "./log/store.ts";
 import type { Notifier } from "./notify/contract.ts";
 import { ticketFacts } from "./runner/scheduler.ts";
@@ -29,10 +29,11 @@ const CONFLICT = "rebase conflict";
 const RESOLVED = "rebase conflict resolved";
 
 /** The decision-log conflict that no later record resolved, if any. */
-export function openConflict(records: DecisionRecord[]): DecisionRecord | undefined {
-  const at = records.findLastIndex((r) => r.kind === "note" && r.decision.startsWith(CONFLICT) && r.decision !== RESOLVED);
-  if (at < 0) return undefined;
-  return records.slice(at + 1).some((r) => r.kind === "note" && r.decision === RESOLVED) ? undefined : records[at];
+export function openConflict(records: DecisionRecord[]): NoteRecord | undefined {
+  const rebases = ofKind(records, "note").filter((r) => r.payload.rebase !== undefined);
+  const last = rebases.findLast((r) => r.payload.rebase === "conflict");
+  if (!last) return undefined;
+  return rebases.slice(rebases.indexOf(last) + 1).some((r) => r.payload.rebase === "resolved") ? undefined : last;
 }
 
 /**
@@ -61,11 +62,11 @@ async function updateOne(d: UpkeepDeps, t: Ticket, run: string): Promise<UpkeepO
   } catch (e) {
     res = { status: "failed" as const, detail: (e as Error).message };
   }
-  const note = (decision: string, text: string, result: "ok" | "fail") =>
-    d.log.append(t.id, { run, node: null, kind: "note", decision, why: text, evidence: null, result, payload: { by: "runner", text } });
+  const note = (decision: string, text: string, result: "ok" | "fail", rebase?: NotePayload["rebase"]) =>
+    d.log.append(t.id, { run, node: null, kind: "note", decision, why: text, evidence: null, result, payload: { by: "runner", text, ...(rebase && { rebase }) } });
 
   if (res.status === "updated" || res.status === "current") {
-    if (openConflict(records)) note(RESOLVED, `the branch is on ${d.defaultBranch} again`, "ok");
+    if (openConflict(records)) note(RESOLVED, `the branch is on ${d.defaultBranch} again`, "ok", "resolved");
     else if (res.status === "updated") note(`rebased onto ${d.defaultBranch}`, res.detail, "ok");
     return { ticket: t.id, status: res.status, detail: res.detail };
   }
@@ -81,7 +82,7 @@ async function updateOne(d: UpkeepDeps, t: Ticket, run: string): Promise<UpkeepO
   const workerEnded = after.some((r) => r.kind === "node-outcome" && r.payload.nodeKind === "agent" && r.result !== "running");
   if (prior && !workerEnded) return { ticket: t.id, status: "conflict", detail: res.detail, to: "already-with-worker" };
   if (prior) {
-    note(`${CONFLICT}: the worker could not resolve it`, res.detail, "fail");
+    note(`${CONFLICT}: the worker could not resolve it`, res.detail, "fail", "conflict");
     await escalate(
       { tracker: d.tracker, log: d.log, ...(d.notifier && { notifier: d.notifier }) },
       {
@@ -96,7 +97,7 @@ async function updateOne(d: UpkeepDeps, t: Ticket, run: string): Promise<UpkeepO
     );
     return { ticket: t.id, status: "conflict", detail: res.detail, to: "human" };
   }
-  note(`${CONFLICT}: sent back to the worker`, res.detail, "fail");
+  note(`${CONFLICT}: sent back to the worker`, res.detail, "fail", "conflict");
   await d.tracker.postComment(t.id, {
     kind: "rebase-conflict",
     body: `The branch no longer rebases cleanly onto ${d.defaultBranch}: ${res.detail}. It goes back to the worker to resolve.`,

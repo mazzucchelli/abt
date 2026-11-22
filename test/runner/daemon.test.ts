@@ -5,6 +5,7 @@ import { join } from "node:path";
 import { LockError } from "../../src/runner/lock.ts";
 import { sendNudge } from "../../src/runner/socket.ts";
 import { machine, until } from "./machine.ts";
+import { ofKind } from "../../src/log/record.ts";
 
 test("a second runner refuses to start while one is running, and may once it has stopped", async () => {
   const m = machine();
@@ -148,7 +149,7 @@ test("after a restart the orphan worker is killed and its ticket re-runs with no
   assert.deepEqual(outcome.killed, [4242]);
   // With one fail already counted out of two attempts, the re-run only succeeds if the orphan cost nothing.
   assert.equal(outcome.state, "In review");
-  const override = records.find((r) => r.kind === "override" && r.payload.by === "runner" && r.payload.target === AGENT)!;
+  const override = ofKind(records, "override").find((r) => r.payload.by === "runner" && r.payload.target === AGENT)!;
   assert.match(override.decision, /killed orphan worker \(pid 4242\)/);
   assert.match(override.why, /no retry used/);
   assert.deepEqual(override.payload.value, { pid: 4242 });

@@ -1,5 +1,5 @@
 import type { UsageLimit } from "../harness/contract.ts";
-import type { DecisionRecord } from "../log/record.ts";
+import { ofKind, type DecisionRecord } from "../log/record.ts";
 import type { Grade } from "../routing.ts";
 
 /** Worker slots per machine, shared by every project. */
@@ -92,11 +92,11 @@ export function ticketFacts(records: DecisionRecord[]): TicketFacts {
   const superseded = new Set(records.flatMap((r) => (r.supersedes ? [r.supersedes] : [])));
   const live = records.filter((r) => !superseded.has(r.id));
   const agentIdx = live.findLastIndex((r) => r.kind === "node-outcome" && r.payload.nodeKind === "agent");
-  const agent = agentIdx >= 0 ? live[agentIdx] : undefined;
+  const agent = ofKind(live, "node-outcome").findLast((r) => r.payload.nodeKind === "agent");
   const blockedIdx = live.findLastIndex((r) => r.kind === "blocked");
-  const blocked = blockedIdx >= 0 ? live[blockedIdx] : undefined;
+  const blocked = ofKind(live, "blocked").at(-1);
   const route = live.findLast((r) => r.kind === "routing");
-  const grade = (route?.payload.grade as Grade | undefined) ?? "standard";
+  const grade = route?.payload.grade ?? "standard";
 
   let runningSince: string | undefined;
   if (agent?.result === "running") {
@@ -109,23 +109,20 @@ export function ticketFacts(records: DecisionRecord[]): TicketFacts {
     }
   }
   const blockedAfterWorker = blockedIdx > agentIdx;
+  const usageLimit = agent?.payload.usageLimit;
   return {
     running: agent?.result === "running" && !blockedAfterWorker,
     ...(agent?.node != null && { agentNode: agent.node }),
     ...(agent && { lastResult: agent.result }),
-    usageLimited: agent?.result === "error" && usageLimitOf(agent) !== undefined,
-    ...(agent?.result === "error" && usageLimitOf(agent) && { pausedUntil: pauseUntil(usageLimitOf(agent)!, new Date(agent.timestamp)) }),
-    blockedBy: blocked ? ((blocked.payload.by as string[] | undefined) ?? []) : [],
+    usageLimited: agent?.result === "error" && usageLimit !== undefined,
+    ...(agent?.result === "error" && usageLimit && { pausedUntil: pauseUntil(usageLimit, new Date(agent.timestamp)) }),
+    blockedBy: blocked?.payload.by ?? [],
     blockedAfterWorker: blockedAfterWorker && agent?.result === "running",
     ...(runningSince && { runningSince }),
     grade,
   };
 }
 
-export function usageLimitOf(record: DecisionRecord): UsageLimit | undefined {
-  const u = record.payload.usageLimit;
-  return u && typeof u === "object" ? (u as UsageLimit) : undefined;
-}
 
 /** When dispatch may resume after a usage limit hit at `hitAt`: the reported reset, else a fixed pause. */
 export function pauseUntil(limit: UsageLimit, hitAt: Date): number {

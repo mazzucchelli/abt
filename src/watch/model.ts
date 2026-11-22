@@ -3,7 +3,7 @@ import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { parseTree, type TreeNode } from "../tree.ts";
 import { DirTrees, LayeredTrees, type TreeStore } from "../trees.ts";
-import type { DecisionRecord } from "../log/record.ts";
+import { isDecisionRecord, ofKind, type DecisionRecord, type NodeOutcomeRecord } from "../log/record.ts";
 import type { WorkType } from "../tracker/contract.ts";
 
 /**
@@ -99,7 +99,8 @@ function readLog(file: string): DecisionRecord[] {
   for (const l of readFileSync(file, "utf8").split("\n")) {
     if (!l.trim()) continue;
     try {
-      out.push(JSON.parse(l) as DecisionRecord);
+      const record: unknown = JSON.parse(l);
+      if (isDecisionRecord(record)) out.push(record);
     } catch {
       // a torn last line while the runner is appending
     }
@@ -207,10 +208,13 @@ export async function loadSnapshot(o: LoadOptions): Promise<Snapshot> {
   return { now: o.now, tickets };
 }
 
+/** An override's value is free-form; an abandon command carries `{ command: "abandon" }`. */
+const isAbandon = (v: unknown): boolean => typeof v === "object" && v !== null && "command" in v && v.command === "abandon";
+
 function workTypeOf(records: DecisionRecord[]): WorkType {
-  const retyped = records.findLast((r) => r.kind === "retype" && typeof r.payload.to === "string")?.payload.to;
-  const assessed = records.findLast((r) => r.kind === "risk-assessment" && typeof r.payload.workType === "string")?.payload.workType;
-  return ((retyped ?? assessed ?? "implement") as WorkType);
+  const retyped = ofKind(records, "retype").at(-1)?.payload.to;
+  const assessed = ofKind(records, "risk-assessment").findLast((r) => r.payload.workType !== undefined)?.payload.workType;
+  return retyped ?? assessed ?? "implement";
 }
 
 interface Ctx {
@@ -225,13 +229,13 @@ interface Ctx {
 function deriveTicket(key: string, workType: WorkType, records: DecisionRecord[], tx: TxEvent[], c: Ctx): TicketView {
   const at = (r: DecisionRecord) => Date.parse(r.timestamp);
   const superseded = new Set(records.flatMap((r) => (r.supersedes ? [r.supersedes] : [])));
-  const latest = new Map<string, DecisionRecord>();
+  const latest = new Map<string, NodeOutcomeRecord>();
   for (const r of records) if (r.kind === "node-outcome" && r.node && !superseded.has(r.id)) latest.set(r.node, r);
 
   // Phase
   const escIdx = records.findLastIndex((r) => r.kind === "escalation");
   const reset = (from: number) => records.findIndex((r, i) => i > from && r.kind === "override" && RESETS.has(String(r.payload.target)));
-  const abandoned = records.some((r) => r.kind === "override" && r.payload.target === "ticket" && (r.payload.value as { command?: string } | undefined)?.command === "abandon");
+  const abandoned = records.some((r) => r.kind === "override" && r.payload.target === "ticket" && isAbandon(r.payload.value));
   const merged = records.some((r) => r.kind === "merge" && r.result === "ok");
   // Cleanup is its own tree for an implement ticket and the work tree's last step for a research one.
   const lastStep = c.work && "children" in c.work ? c.work.children.at(-1) : undefined;
@@ -301,10 +305,10 @@ function deriveTicket(key: string, workType: WorkType, records: DecisionRecord[]
   const tries = sinceOk.filter((r) => r.kind === "routing").length;
   const cost = tx.reduce((a, e) => a + (e.cost ?? 0), 0);
   const tokens = tx.reduce((a, e) => a + (e.tokens ?? 0), 0);
-  const esc = needs ? records[escIdx]! : undefined;
-  const all = records.flatMap((r) => [r.why, r.decision]).join(" ");
+  const escalation = records[escIdx];
+  const esc = needs && escalation?.kind === "escalation" ? escalation : undefined;
   const pr = records.map((r) => /\/pull\/(\d+)/.exec(r.evidence ?? "")?.[1]).findLast(Boolean);
-  const branch = /\b(?:feature|fix|abt)\/[\w.-]+/.exec(all)?.[0];
+  const branch = ofKind(records, "node-outcome").findLast((r) => r.payload.branch !== undefined)?.payload.branch;
 
   return {
     key, workType, phase, tries, capMinutes: c.caps[grade ?? ""] ?? 90, startedAt: start, lastAt, elapsedMs: Math.max(0, end - start),
@@ -313,7 +317,7 @@ function deriveTicket(key: string, workType: WorkType, records: DecisionRecord[]
     ...(typeof routing?.payload.effort === "string" && { effort: routing.payload.effort }),
     ...(cost > 0 && { cost }), ...(tokens > 0 && { tokensK: Math.round(tokens / 1000) }),
     ...(branch && { branch }), ...(pr && { pr: `#${pr}` }),
-    ...(esc && { question: { question: String(esc.payload.question ?? esc.why), recommended: String(esc.payload.recommended ?? ""), reversible: esc.payload.reversible !== false } }),
+    ...(esc && { question: { question: esc.payload.question ?? esc.why, recommended: esc.payload.recommended ?? "", reversible: esc.payload.reversible !== false } }),
     stages: stages.map(({ name, status }) => ({ name, status })),
     board: rows((s) => s === current && ACTIVE.includes(phase)),
     full: rows((s) => s.status !== "todo" && s.status !== "ok" && s.status !== "skip"),
@@ -349,7 +353,7 @@ function events(records: DecisionRecord[], tx: TxEvent[], superseded: Set<string
     if (r.kind === "node-outcome") {
       if (!LEAVES.has(String(r.payload.nodeKind)) || r.result === "skipped") continue;
       icon = r.result === "ok" ? "ok" : r.result === "fail" || r.result === "error" ? "fail" : "info";
-      text = r.why && r.result !== "running" ? `${r.decision.replace(/^\w+ /, "")}: ${r.why}` : r.decision;
+      text = r.why && r.result !== "running" ? `${r.payload.name ?? r.decision}: ${r.why}` : r.decision;
       const sig = `${r.result}|${r.why}`;
       if (last.get(String(r.node)) === sig) continue;
       last.set(String(r.node), sig);

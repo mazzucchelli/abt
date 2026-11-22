@@ -2,7 +2,7 @@ import { appendFileSync, existsSync, mkdirSync, readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import type { Clock } from "../clock.ts";
-import { validateRecord, type DecisionRecord, type RecordInput } from "./record.ts";
+import { isDecisionRecord, validateRecord, type DecisionRecord, type RecordInput } from "./record.ts";
 
 export class LogError extends Error {
   constructor(message: string) {
@@ -44,7 +44,11 @@ export class DecisionLog {
     return readFileSync(file, "utf8")
       .split("\n")
       .filter((l) => l.trim() !== "")
-      .map((l) => JSON.parse(l) as DecisionRecord);
+      .map((l, i) => {
+        const record: unknown = JSON.parse(l);
+        if (!isDecisionRecord(record)) throw new LogError(`${file}: record ${i + 1} is not a valid decision record: ${validateRecord(record).join("; ")}`);
+        return record;
+      });
   }
 
   append(ticket: string, input: RecordInput): DecisionRecord {

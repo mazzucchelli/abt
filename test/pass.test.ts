@@ -298,7 +298,7 @@ test("a worker is launched at the grade the ticket's risk needs, and the pinned 
   w.harness.script("tdd", { result: "ok" });
   w.log.append(w.ticket, { run: "r0", node: null, kind: "risk-assessment", decision: "risk tier high", why: "w", evidence: null, result: "ok", payload: { tier: "high", reasons: [] } });
   // The owner approved the spec: a high-risk ticket's implementation worker never starts before that.
-  w.log.append(w.ticket, { run: "r0", node: null, kind: "escalation", decision: "ticket sent to Needs you", why: "w", evidence: null, result: "fail", payload: { question: "Approve the spec? yes", reason: "w", needs: "an answer" } });
+  w.log.append(w.ticket, { run: "r0", node: null, kind: "escalation", decision: "ticket sent to Needs you", why: "w", evidence: null, result: "fail", payload: { question: "Approve the spec? yes", reason: "w", needs: "an answer", specApproval: true } });
   w.log.append(w.ticket, { run: "r0", node: null, kind: "override", decision: "owner answered", why: "w", evidence: null, result: "ok", payload: { target: "escalation", by: "owner", value: { command: "answer" } } });
   await w.pass("agent: tdd");
   assert.deepEqual([w.harness.requests[0]!.model, w.harness.requests[0]!.effort], ["claude-opus-5-5", "high"]);
@@ -378,7 +378,7 @@ test("a worker gets its own isolated environment, different from another ticket'
 test("a worker sent back after a rebase conflict is told about the conflict", async () => {
   const w = await world();
   await w.claim();
-  w.log.append(w.ticket, { run: "r0", node: null, kind: "note", decision: "rebase conflict: sent back to the worker", why: "conflicts in a.txt", evidence: null, result: "fail", payload: { by: "runner", text: "conflicts in a.txt" } });
+  w.log.append(w.ticket, { run: "r0", node: null, kind: "note", decision: "rebase conflict: sent back to the worker", why: "conflicts in a.txt", evidence: null, result: "fail", payload: { by: "runner", text: "conflicts in a.txt", rebase: "conflict" } });
   w.harness.script("tdd", { result: "ok" });
   await w.pass("agent: tdd");
   assert.match(w.harness.requests[0]!.prompt, /no longer rebases cleanly[\s\S]*conflicts in a\.txt/);
