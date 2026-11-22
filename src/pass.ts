@@ -1,5 +1,6 @@
 import type { CodeHost } from "./codehost/contract.ts";
 import { HeadMovedError, type CheckName, type CodeHostFacts } from "./codehost/contract.ts";
+import type { LandingGuard } from "./landing/guard.ts";
 import type { MergePolicy, Mutex } from "./landing/policy.ts";
 import { effectiveTier } from "./risk/assess.ts";
 import { RISK_TIERS } from "./tracker/contract.ts";
@@ -30,6 +31,8 @@ export interface LandingContext {
   treeHash: string;
   /** One merge at a time per project. */
   lock: Mutex;
+  /** Re-probes the project before every merge and watches the default branch after it. */
+  guard?: LandingGuard;
 }
 
 export interface PassDeps {
@@ -369,16 +372,21 @@ class Pass {
       if (facts.checks["branch-up-to-date"] !== true) return { result: "fail", why: "the branch is not up to date with the default branch" };
       const green = requiredChecks(policy, facts);
       if (green.result !== "ok") return { result: "fail", why: green.why, headSha: facts.headSha };
+      // Last thing before the merge: has the project drifted from what the policy was agreed on?
+      const gate = await landing.guard?.beforeMerge({ ticket, run: this.#run, log: this.#d.log, policy });
+      if (gate && !gate.ok) return { result: gate.result, why: gate.why, headSha: facts.headSha };
+      let mergeSha: string;
       try {
-        await codeHost.merge(ticket, { matchHeadSha: facts.headSha });
+        mergeSha = await codeHost.merge(ticket, { matchHeadSha: facts.headSha });
       } catch (e) {
         if (e instanceof HeadMovedError) return { result: "fail", why: `aborted: ${e.message}`, headSha: facts.headSha };
         throw e;
       }
       this.#d.log.append(ticket, {
         run: this.#run, node: null, kind: "merge", decision: "runner merged the PR", why: `squash-merged with the head pinned to ${facts.headSha}`, evidence: facts.pr, result: "ok",
-        payload: { pr: facts.pr, sha: facts.headSha, policy_hash: landing.policyHash, tree_hash: landing.treeHash },
+        payload: { pr: facts.pr, sha: facts.headSha, merge_sha: mergeSha, policy_hash: landing.policyHash, tree_hash: landing.treeHash },
       });
+      await landing.guard?.recordMerge({ ticket, sha: mergeSha, pr: facts.pr });
       return { result: "ok", why: "merged", evidence: facts.pr, headSha: facts.headSha };
     });
   }

@@ -41,8 +41,8 @@ export interface CodeHost {
   openPr(ticket: string, body?: string): Promise<string>;
   /** Closes the ticket's open PR without merging it. Does nothing if there is none; refuses a merged one. */
   closePr(ticket: string): Promise<void>;
-  /** Squash-merges the PR, only if its head is still `matchHeadSha`; otherwise throws HeadMovedError and merges nothing. */
-  merge(ticket: string, opts: { matchHeadSha: string }): Promise<void>;
+  /** Squash-merges the PR, only if its head is still `matchHeadSha`; otherwise throws HeadMovedError and merges nothing. Resolves to the merge commit's SHA. */
+  merge(ticket: string, opts: { matchHeadSha: string }): Promise<string>;
 }
 
 /** An open pull request, as far as validating it goes. */
@@ -79,4 +79,12 @@ export class HeadMovedError extends Error {
     super(message);
     this.name = "HeadMovedError";
   }
+}
+
+/** The default branch as the post-merge watch needs it: what CI says about a merge commit, and a way to take it back. */
+export interface MainHost {
+  /** CI jobs on a commit of the default branch, by name. A job that has not reported is absent. */
+  mainJobs(sha: string): Promise<Record<string, JobResult>>;
+  /** Opens a PR that reverts the commit and returns its URL. The PR is left for the human: nothing here merges it. */
+  openRevertPr(sha: string, pr: { title: string; body: string }): Promise<string>;
 }

@@ -1,5 +1,6 @@
 import { runPass, type PassDeps } from "./pass.ts";
 import { treeViolations } from "./invariants.ts";
+import type { LandingGuard } from "./landing/guard.ts";
 import { loadPolicy, projectLock, sha256, type PolicyStore } from "./landing/policy.ts";
 import type { DecisionRecord, Result } from "./log/record.ts";
 import { assessTicket, effectiveTier, type RiskDeps } from "./risk/assess.ts";
@@ -34,6 +35,8 @@ export interface TicketRunDeps extends Omit<PassDeps, "tree" | "run" | "file"> {
    * ticket in Needs you, and no merge happens until the files are pinned (the owner merged the onboarding PR by hand).
    */
   pins?: { files: DefaultBranchFiles; store: PinStore; project: string };
+  /** Re-probes the project before every autonomous merge and watches the default branch after it. Without it merges are not guarded. */
+  guard?: LandingGuard;
   /** When given, a failed run's worktree is kept and stamped with this clock's time instead of removed; the runner's sweep removes it after its TTL. */
   keepFailed?: Clock;
 }
@@ -198,7 +201,7 @@ async function runLanding(deps: TicketRunDeps, run: string, pin?: PinCheck): Pro
     return { run, result: "fail", terminal: true };
   }
 
-  const landing = { policy: agreed.policy, policyHash: agreed.hash, treeHash, lock: projectLock(deps.policy!) };
+  const landing = { policy: agreed.policy, policyHash: agreed.hash, treeHash, lock: projectLock(deps.policy!), ...(deps.guard && { guard: deps.guard }) };
   const r = await runPass({ ...deps, run, trees, tree: loaded.source, file: loaded.file, landing });
   if (r.result === "ok") {
     await finish(deps, "ok", "Done");
