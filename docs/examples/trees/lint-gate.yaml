@@ -1,0 +1,28 @@
+# The shipped implement tree with one project check added: after the worker's change, the project's
+# lint script must pass before a PR is opened. If it fails, the worker runs again as the next attempt
+# of the same retry budget. See docs/how-to/add-a-check.md.
+#
+# To use it, commit it as .agents/abt/trees/implement.yaml and the script as .agents/abt/checks/lint.sh
+# (executable; exit 0 = pass, exit 1 = fail, anything else = error).
+id: implement
+seq:
+  - retry: 3
+    do:
+      ensure:
+        cond:
+          check: spec-ready
+        else:
+          agent: spec-writing
+  - action: await-spec-approval
+  - retry: 5
+    do:
+      seq:
+        - agent: tdd
+        - id: lint
+          script: .agents/abt/checks/lint.sh
+  - ensure:
+      cond:
+        check: pr-exists
+      else:
+        action: open-pr
+  - action: land

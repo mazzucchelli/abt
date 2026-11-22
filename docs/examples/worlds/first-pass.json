@@ -1,0 +1,5 @@
+{
+  "now": "2026-03-01T09:00:00.000Z",
+  "tickets": [{ "title": "Add a --json flag to the status command", "body": "Print the status as JSON when --json is passed." }],
+  "harness": { "tdd": [{ "result": "ok" }] }
+}

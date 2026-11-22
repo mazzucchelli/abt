@@ -1,0 +1,14 @@
+# A minimal tree for trying abt against a fake world: claim the ticket, let a worker do the work
+# (two attempts at most), then make sure a PR is open. Run it with:
+#   ABT_HOME=$(mktemp -d) bin/abt run docs/examples/trees/claim-and-open-pr.yaml FAKE-1 --world docs/examples/worlds/first-pass.json
+id: try
+seq:
+  - action: claim
+  - retry: 2
+    do:
+      agent: tdd
+  - ensure:
+      cond:
+        check: pr-exists
+      else:
+        action: open-pr
