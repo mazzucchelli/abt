@@ -31,6 +31,9 @@ export interface ProfileContext {
   pluginDir: string;
 }
 
+/** The launch profile's name in the global config. */
+export const CLAUDE_SUBSCRIPTION = "claude-subscription";
+
 export const GLOBAL_CONFIG_PATH = join(homedir(), ".agents", "abt", "config.yaml");
 const PINNED = /^claude-[a-z0-9][a-z0-9.-]*$/;
 const KEYS = ["binary", "min-version", "keychain", "models", "plugin-dir", "runs-dir", "max-wait-minutes", "max-usage-limit-wait-minutes"];
@@ -54,7 +57,7 @@ export function parseLaunchProfile(source: string, ctx: ProfileContext): ClaudeS
     throw new ProfileError(`global config is not valid YAML: ${(e as Error).message.split("\n")[0]}`);
   }
   const profiles = obj(obj(raw, "global config")["launch-profiles"] ?? {}, "launch-profiles");
-  const p = obj(profiles["claude-subscription"] ?? {}, "launch-profiles.claude-subscription");
+  const p = obj(profiles[CLAUDE_SUBSCRIPTION] ?? {}, "launch-profiles.claude-subscription");
   for (const k of Object.keys(p)) {
     if (!KEYS.includes(k)) throw new ProfileError(`unknown key "${k}" in launch-profiles.claude-subscription`);
   }

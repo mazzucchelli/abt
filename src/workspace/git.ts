@@ -10,10 +10,13 @@ const run = promisify(execFile);
 export class GitWorkspace implements Workspace {
   readonly #repo: string;
   readonly #dir: string;
+  readonly #base: string | undefined;
 
-  constructor(repo: string, worktreesDir: string) {
+  /** `base` is where a new branch starts (the remote default branch); without it, the repo's HEAD. */
+  constructor(repo: string, worktreesDir: string, base?: string) {
     this.#repo = repo;
     this.#dir = worktreesDir;
+    this.#base = base;
   }
 
   async ensure(ticket: string, branch: string): Promise<string> {
@@ -21,7 +24,7 @@ export class GitWorkspace implements Workspace {
     if (existsSync(path)) return path;
     await this.#git("worktree", "prune");
     const exists = await this.#git("rev-parse", "--verify", "--quiet", `refs/heads/${branch}`).then(() => true, () => false);
-    await this.#git("worktree", "add", ...(exists ? [path, branch] : ["-b", branch, path]));
+    await this.#git("worktree", "add", ...(exists ? [path, branch] : ["-b", branch, path, ...(this.#base ? [this.#base] : [])]));
     return path;
   }
 

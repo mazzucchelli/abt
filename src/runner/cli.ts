@@ -7,13 +7,13 @@ import { loadFakeWorld } from "../fake-world.ts";
 import { DecisionLog, abtHome } from "../log/store.ts";
 import { DirTrees, MemoryTrees } from "../trees.ts";
 import { InstallStore } from "../install/store.ts";
-import { loadLaunchProfile } from "../harness/claude/profile.ts";
+import { keychainToken } from "../harness/claude/adapter.ts";
+import { loadLaunchProfile, type ClaudeSubscriptionProfile } from "../harness/claude/profile.ts";
 import { selfTestGate } from "../harness/claude/selftest.ts";
 import { systemSpawner } from "../harness/claude/spawn.ts";
 import { resolveCredential } from "../tracker/credentials.ts";
 import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { PrValidator } from "../pr-validation.ts";
 import { loadGlobalConfig } from "./config.ts";
 import { loadIsolation } from "../tracker/config.ts";
 import { WorkerEnvs } from "../workspace/env.ts";
@@ -23,6 +23,7 @@ import { LaunchdAgent, systemLaunchctl } from "./launchd.ts";
 import { LockError, processAlive, runnerStatus } from "./lock.ts";
 import { sendNudge } from "./socket.ts";
 import { TranscriptRetention } from "./retention.ts";
+import { assembleProject, serveProjects } from "./project.ts";
 import { ProcessWorkers } from "./workers.ts";
 
 const USAGE = `usage: abt runner <command>
@@ -99,30 +100,34 @@ async function runDaemon(home: string, flags: string[]): Promise<number> {
   const worldFile = w >= 0 ? flags[w + 1] : undefined;
   const newId = randomUUID;
   const log = new DecisionLog(home, systemClock, newId);
-  const plugin = new DirTrees(fileURLToPath(new URL("../../defaults/trees/", import.meta.url)));
-  let projects: RunnerProject[];
+  const pluginDir = fileURLToPath(new URL("../..", import.meta.url));
+  const plugin = new DirTrees(join(pluginDir, "defaults", "trees"));
   const config = loadGlobalConfig(home);
+  const profile = loadLaunchProfile({ home: homedir(), pluginDir });
+  // The startup self-test against the real Claude Code gates dispatch; the fake world has no Claude to test.
+  const gate = startupSelfTest(profile);
+  const ready = worldFile ? undefined : gate;
+  const workers = new ProcessWorkers();
+  const shared = { log, newId, plugin };
+  let projects: RunnerProject[];
   if (worldFile) {
     const world = await loadFakeWorld(worldFile);
     const { tracker, codeHost, harness, workspace } = world;
     // One WorkerEnvs serves both sides: workers allocate their lane from it and the runner's sweep frees it.
     const envs = new WorkerEnvs(join(home, "lanes"), config.projects[0] ? loadIsolation(config.projects[0].path) : undefined);
-    projects = [{ name: "fake", tracker, log, workspace, envs, defaultBranch: "main", prValidator: new PrValidator({ host: codeHost, plugin, onError: (e, where) => console.error(`abt runner: ${where}: ${(e as Error).message}`) }), ...(config.projects[0]?.maxWorkers && { maxWorkers: config.projects[0].maxWorkers }), deps: (ticket) => ({ ticket, tracker, codeHost, harness, workspace, envs, log, newId, plugin, project: new MemoryTrees(".agents/abt/trees", {}) }) }];
+    projects = [assembleProject({
+      name: "fake", tracker, codeHost, harness, workspace, envs, defaultBranch: "main", trees: new MemoryTrees(".agents/abt/trees", {}),
+      ...(config.projects[0]?.maxWorkers && { maxWorkers: config.projects[0].maxWorkers }),
+    }, shared)];
   } else {
-    // Real code host and harness adapters are not built yet, so a listed project cannot be served.
-    // Say so and keep running (launchd would only restart a daemon that exits), heartbeat and all.
-    for (const p of config.projects) {
-      console.error(`abt runner: project "${p.name}" skipped: real code host and harness adapters are not wired yet`);
-    }
-    projects = [];
+    // A worker's end starts a pass, so every Claude run goes through the workers' tracking spawner.
+    const served = await serveProjects(config.projects, { ...shared, home, profile, hostEnv: process.env, spawn: workers.tracking(systemSpawner), ready: gate, readToken: () => keychainToken(profile.keychainItem) });
+    for (const l of served.lines) console.error(l);
+    projects = served.projects;
   }
-  // The startup self-test against the real Claude Code gates dispatch; the fake world has no Claude to test.
-  const ready = worldFile ? undefined : startupSelfTest();
-  // The real harness adapter, once wired here, is built with `claudeSubscriptionAdapter(profile, env, workers.tracking(systemSpawner))` so a worker's end starts a pass.
-  const workers = new ProcessWorkers();
   const runner = new Runner({
     home, clock: systemClock, timers: systemTimers, pid: process.pid, isAlive: processAlive, projects,
-    scheduling: config.scheduling, retention: new TranscriptRetention({ runsDir: loadLaunchProfile({ home: homedir(), pluginDir: fileURLToPath(new URL("../..", import.meta.url)) }).runsDir, clock: systemClock }), workers, ...(ready && { ready }), newId, store: new DispatchStore(join(home, "dispatch.json")), socketPath: join(home, "runner.sock"),
+    scheduling: config.scheduling, retention: new TranscriptRetention({ runsDir: profile.runsDir, clock: systemClock }), workers, ...(ready && { ready }), newId, store: new DispatchStore(join(home, "dispatch.json")), socketPath: join(home, "runner.sock"),
   });
   try {
     await runner.start();
@@ -133,7 +138,7 @@ async function runDaemon(home: string, flags: string[]): Promise<number> {
     }
     throw e;
   }
-  console.log(`abt runner: serving ${projects.length} project(s)`);
+  console.log(`abt runner: serving ${projects.length} project(s)${projects.length ? `: ${projects.map((p) => p.name).join(", ")}` : ""}`);
   await new Promise<void>((resolve) => {
     for (const sig of ["SIGTERM", "SIGINT"] as const) process.once(sig, () => resolve());
   });
@@ -142,17 +147,14 @@ async function runDaemon(home: string, flags: string[]): Promise<number> {
 }
 
 /** The self-test of this install, as the daemon's dispatch gate: a pass is remembered, a failure is retried on the next poll. */
-function startupSelfTest(): () => Promise<void> {
+function startupSelfTest(profile: ClaudeSubscriptionProfile): () => Promise<void> {
   let gate: (() => Promise<void>) | undefined;
-  // Built on first use, so a missing profile is a refusal to dispatch, not a crash of the daemon.
+  // Built on first use, so a missing Keychain token is a refusal to dispatch, not a crash of the daemon.
   return async () => {
-    if (!gate) {
-      const profile = loadLaunchProfile({ home: homedir(), pluginDir: fileURLToPath(new URL("../..", import.meta.url)) });
-      gate = selfTestGate(
-        { profile, spawn: systemSpawner, hostEnv: process.env, workDir: mkdtempSync(join(tmpdir(), "abt-selftest-")) },
-        () => resolveCredential({ keychain: profile.keychainItem }),
-      );
-    }
+    gate ??= selfTestGate(
+      { profile, spawn: systemSpawner, hostEnv: process.env, workDir: mkdtempSync(join(tmpdir(), "abt-selftest-")) },
+      () => resolveCredential({ keychain: profile.keychainItem }),
+    );
     await gate();
   };
 }

@@ -4,7 +4,7 @@ import { dirname, join } from "node:path";
 import { parse } from "yaml";
 import { createPr, readPrState } from "../codehost/gh.ts";
 import { errorText, systemExec, type Exec } from "../codehost/exec.ts";
-import { projectIdFromRemote, type FactsProbe, type ProjectFacts } from "./facts.ts";
+import { projectIdFromRemote, repoSlug, type FactsProbe, type ProjectFacts } from "./facts.ts";
 import type { DefaultBranchFiles, OnboardHost, OnboardPr, OpenedPr, PrState } from "./host.ts";
 
 export { systemExec, type Exec };
@@ -49,7 +49,7 @@ export class GhProbe implements FactsProbe {
       const remote = (await this.#exec("git", ["remote", "get-url", "origin"], { cwd: this.#repo })).trim();
       const id = projectIdFromRemote(remote);
       if (!id) throw new Error(`origin is not a GitHub remote: ${remote}`);
-      const slug = id.replace("__", "/");
+      const slug = repoSlug(id);
       const repo = await this.#try(() => this.#api<{ default_branch: string; private?: boolean; visibility?: string; allow_auto_merge?: boolean; owner?: { type?: string } }>(slug, ""));
       return {
         id, slug, branch: repo?.default_branch ?? (await remoteDefaultBranch(this.#repo, this.#exec)),
