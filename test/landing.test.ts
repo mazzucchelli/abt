@@ -219,6 +219,16 @@ test("a branch that is not up to date is not merged", async () => {
   assert.equal(await w.state(), "In review");
 });
 
+test("a PR with merge conflicts is not merged", async () => {
+  const w = await world({ tier: "low" });
+  await w.run();
+  w.green();
+  w.codeHost.setFacts(w.id, { mergeable: false });
+  await w.run();
+  assert.equal(w.codeHost.merges.length, 0);
+  assert.equal(await w.state(), "In review");
+});
+
 test("a land.yaml that does not match land_tree_hash blocks merging and opens Needs you", async () => {
   const edited = landSource + "# edited\n";
   const w = await world({ tier: "low", project: { land: edited } });

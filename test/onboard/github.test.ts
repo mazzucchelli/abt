@@ -89,7 +89,7 @@ test("opening the PR pushes a branch from the default branch and creates the PR 
 });
 
 test("a merged PR reads as merged with its commit, an unmerged closed one as closed", async () => {
-  const state = (json: unknown) => new GhHost({ repo: "/r", defaultBranch: "main", exec: async () => JSON.stringify(json) }).readState(9);
+  const state = (json: unknown) => new GhHost({ repo: "/r", defaultBranch: "main", exec: async () => JSON.stringify({ number: 9, url: "https://github.com/me/solo/pull/9", headRefOid: "h", baseRefName: "main", mergeCommit: null, ...(json as object) }) }).readState(9);
   assert.deepEqual(await state({ state: "MERGED", mergeCommit: { oid: "abc" } }), { state: "merged", mergeCommit: "abc" });
   assert.deepEqual(await state({ state: "CLOSED" }), { state: "closed" });
   assert.deepEqual(await state({ state: "OPEN" }), { state: "open" });

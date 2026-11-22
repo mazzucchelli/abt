@@ -370,6 +370,7 @@ class Pass {
       const checked = this.#greenCheck()?.payload.headSha;
       if (checked !== facts.headSha) return { result: "fail", why: `aborted: head is ${facts.headSha}, but the checks were verified on ${String(checked)}`, headSha: facts.headSha };
       if (facts.checks["branch-up-to-date"] !== true) return { result: "fail", why: "the branch is not up to date with the default branch" };
+      if (facts.mergeable === false) return { result: "fail", why: "the PR has merge conflicts with the default branch" };
       const green = requiredChecks(policy, facts);
       if (green.result !== "ok") return { result: "fail", why: green.why, headSha: facts.headSha };
       // Last thing before the merge: has the project drifted from what the policy was agreed on?

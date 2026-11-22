@@ -75,6 +75,14 @@ The tracker contract suite always runs against the in-memory fake. To run it aga
 ABT_TEST_LINEAR=1 ABT_TEST_LINEAR_ADAPTER=/path/to/sandbox-workflow.md LINEAR_API_KEY=... npm test
 ```
 
+## Code host sandbox test
+
+The code host contract suite (`test/codehost/`) always runs against the in-memory fake and against the `gh` adapter with an in-memory `gh`. To run it against a real GitHub sandbox repo, sign `gh` in and name the repo. It creates `abt-contract/*` branches and PRs there, and squash-merges one into the default branch, so the repo must allow squash merges:
+
+```sh
+ABT_TEST_GITHUB=1 ABT_TEST_GITHUB_REPO=owner/sandbox npm test
+```
+
 ## Primary agent: enqueue
 
 From a Claude Code chat, `/abt:enqueue` takes tickets or free text. `abt enqueue <ticket>` makes one tracker write (the abt marker and the work type), nudges the runner and acks in one line with the tracker link. It refuses only an unreadable ticket, a ticket with no work type, or a project with no agreed merge policy (it then offers onboarding). With the runner down the ticket is still enqueued, with a "runner not running" note and an offer to start it; the runner is never started without a yes. A chat reply to an escalation goes through `abt reply <ticket> <text>`, which writes it to the ticket as the owner's comment, so the tracker stays the one resume path.
