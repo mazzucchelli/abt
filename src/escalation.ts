@@ -1,4 +1,4 @@
-import { ofKind, type DecisionRecord } from "./log/record.ts";
+import { ofKind, type AskPointRecord, type DecisionRecord } from "./log/record.ts";
 import type { DecisionLog } from "./log/store.ts";
 import type { Notifier } from "./notify/contract.ts";
 import { effectiveTier } from "./risk/assess.ts";
@@ -46,10 +46,19 @@ export interface HandledAskPoint {
   listedInPr: boolean;
 }
 
+/**
+ * The ask-points a worker raised that the runner has not settled: kind ask-point, result open, no handling, and
+ * not superseded. A retype ask-point carries its own handling, so it is never among them.
+ */
+export function unsettledAskPoints(records: readonly DecisionRecord[]): AskPointRecord[] {
+  const superseded = new Set(records.flatMap((r) => (r.supersedes ? [r.supersedes] : [])));
+  return ofKind(records, "ask-point").filter((r) => r.result === "open" && r.payload.handling === undefined && !superseded.has(r.id));
+}
+
 /** Applies the policy to one ask-point: logs it, and escalates when the policy says so. */
 export async function handleAskPoint(
   deps: EscalationDeps,
-  req: { ticket: string; run: string; node: string | null; askPoint: AskPoint },
+  req: { ticket: string; run: string; node: string | null; askPoint: AskPoint; /** The open ask-point this settles; the settled record supersedes it. */ supersedes?: string },
 ): Promise<HandledAskPoint> {
   const { tracker, log } = deps;
   const { ticket, askPoint: a } = req;
@@ -58,7 +67,8 @@ export async function handleAskPoint(
   log.append(ticket, {
     run: req.run, node: req.node, kind: "ask-point", decision: `${p.handling}: ${a.question}`, why: p.why, evidence: a.evidence,
     result: p.handling === "decided" ? "ok" : "open",
-    payload: { question: a.question, recommended: a.recommended, reversible: a.reversible, handling: p.handling },
+    ...(req.supersedes && { supersedes: req.supersedes }),
+    payload: { question: a.question, recommended: a.recommended, reversible: a.reversible, ...(a.raisesTo && { raisesTo: a.raisesTo }), handling: p.handling },
   });
   if (p.handling === "decided") return { handling: "decided", answer: a.recommended, listedInPr: p.listedInPr };
   await escalate(deps, { ticket, run: req.run, node: req.node, askPoint: a, reason: p.why });

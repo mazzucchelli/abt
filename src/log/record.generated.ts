@@ -88,6 +88,8 @@ export type AskPointPayload = {
   recommended: string;
   reversible: boolean;
   handling?: "decided" | "escalated";
+  /** The tier the ticket would reach if the recommendation were taken, when higher than now. A worker may send it; it can only cause escalation. */
+  raisesTo?: "low" | "medium" | "high";
   retype?: "implement" | "research" | "spike" | "bootstrap";
 };
 

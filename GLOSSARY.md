@@ -98,7 +98,7 @@ Domain terms for the AI workflow. Definitions only, no implementation detail.
 
 **Risk map**: The per-project list of what raises the risk floor there (paths, file types, size threshold). Part of the merge policy.
 
-**Ask-point**: A moment where an agent would ask the human: the question, its recommended answer, the evidence, and whether the choice is reversible. The risk tier decides whether it is decided and logged or escalated. A worker never blocks on the human: it records the ask-point open, without a handling, and hands back.
+**Ask-point**: A moment where an agent would ask the human: the question, its recommended answer, the evidence, and whether the choice is reversible. The risk tier decides whether it is decided and logged or escalated. A worker never blocks on the human: it records the ask-point open, without a handling, and hands back. On the next pass the runner settles it at the ticket's tier: decided, it writes the settled record that supersedes the open one and resumes the worker with the recommended answer; escalated, the ticket goes to Needs you and the worker resumes on the owner's reply. A worker may add `raisesTo`, the tier its recommendation would reach; it can only cause an escalation.
 
 **Decision record**: One entry stating a single decision or outcome in a ticket's run (a tree node's result, a risk assessment, a routing choice, an ask-point, an override, a retype, an escalation, a merge, a probe, a pivot, or a note), why it was made, and a pointer to its evidence. Never edited; a wrong record is corrected by a later one that supersedes it.
 
