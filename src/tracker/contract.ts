@@ -40,7 +40,7 @@ export interface Ticket {
   /** Whether someone has claimed the ticket. */
   claimed: boolean;
   links: Link[];
-  /** Linear's scale: 1 urgent, 2 high, 3 medium, 4 low, 0 none. */
+  /** Tracker-neutral urgency: 1 urgent, 2 high, 3 medium, 4 low, 0 unset. An adapter maps its tracker's own scale onto this one. */
   priority: number;
   /** When the ticket was created (ISO), so the scheduler can take the oldest first. */
   createdAt: string;

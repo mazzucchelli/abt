@@ -9,7 +9,7 @@ import { acceptPins, FilePins, settleOnboarding } from "./pins.ts";
 import { applyDraft, propose } from "./propose.ts";
 
 const USAGE = `usage: abt onboard probe [options]
-       abt onboard open --team <key> [--credentials-env <VAR>] [--draft <policy.yaml>] [options]
+       abt onboard open --team <key> [--credentials-env <VAR>] [--draft <merge-policy.yaml>] [options]
        abt onboard settle [options]
        abt onboard pin [options]
 

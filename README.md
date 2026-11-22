@@ -115,7 +115,7 @@ bin/abt reply ABT-62 "answer: use postgres"
 
 ```bash
 bin/abt onboard probe [--no-write-apps]               # facts, proposal, catalogue matches, gaps
-bin/abt onboard open --team ABT [--draft policy.yaml] # PR: merge policy, facts snapshot, land tree, adapter doc, CLAUDE.md pointer
+bin/abt onboard open --team ABT [--draft merge-policy.yaml] # PR: merge policy, facts snapshot, land tree, adapter doc, CLAUDE.md pointer
 bin/abt onboard settle                                # after you merged it by hand: record the pins
 bin/abt onboard pin                                   # after you read a change to a protected file: re-pin
 ```
