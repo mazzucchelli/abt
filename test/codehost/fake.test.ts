@@ -1,5 +1,6 @@
 import { FakeCodeHost } from "../../src/codehost/fake.ts";
 import { codeHostContractSuite } from "./contract-suite.ts";
+import { mainHostContractSuite } from "./main-host-suite.ts";
 
 codeHostContractSuite("fake code host", () => {
   const host = new FakeCodeHost();
@@ -19,6 +20,23 @@ codeHostContractSuite("fake code host", () => {
     },
     async statusOf(sha, context) {
       return host.statuses.findLast((s) => s.sha === sha && s.status.context === context)?.status.state;
+    },
+  };
+});
+
+mainHostContractSuite("fake main host", () => {
+  const host = new FakeCodeHost();
+  let n = 0;
+  return {
+    host,
+    async commit() {
+      return `main-${++n}`;
+    },
+    async report(sha, job, state) {
+      host.setMainJob(sha, job, state);
+    },
+    async reverts(sha) {
+      return host.reverts.filter((r) => r.sha === sha).map((r) => ({ url: r.url, merged: false }));
     },
   };
 });

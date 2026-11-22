@@ -85,6 +85,8 @@ export class FakeCodeHost implements CodeHost, PrHost, MainHost {
   }
 
   async openRevertPr(sha: string, pr: { title: string; body: string }): Promise<string> {
+    const existing = this.reverts.find((r) => r.sha === sha);
+    if (existing) return existing.url;
     const url = `https://fake.host/revert/${this.reverts.length + 1}`;
     this.reverts.push({ sha, ...pr, url });
     return url;

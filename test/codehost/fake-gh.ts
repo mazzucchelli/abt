@@ -22,7 +22,7 @@ const gherr = (msg: string) => Object.assign(new Error(`gh failed: ${msg}`), { s
 
 /** A tiny GitHub behind the `gh` command line: just the endpoints the code host uses. The test sets the world; calls are recorded. */
 export class FakeGh {
-  readonly slug = "me/sandbox";
+  readonly slug: string;
   readonly base = "main";
   readonly calls: string[][] = [];
   #prs: Pr[] = [];
@@ -38,6 +38,12 @@ export class FakeGh {
   beforeMerge?: () => void;
   /** How many `pr view` reads of a merged PR still show no merge commit. */
   hideMergeCommitReads = 0;
+  /** Commits on the default branch, with their parent counts: what a revert may target. */
+  readonly mainCommits = new Map<string, number>();
+  /** Commits whose revert conflicts. */
+  readonly conflicting = new Set<string>();
+  /** Branches `git push` made, and every `git` command with its directory. */
+  readonly gitCalls: { cwd: string | undefined; args: string[] }[] = [];
   /** Replaces what a command's stdout would be, matched by prefix of the command line, to feed malformed JSON. */
   override?: (line: string) => string | undefined;
 
@@ -49,6 +55,10 @@ export class FakeGh {
   headOf(branch: string): string | undefined {
     return this.#heads.get(branch);
   }
+  /** The PRs opened from a branch, with whether each was merged. */
+  prsFrom(branch: string): { url: string; merged: boolean }[] {
+    return this.#prs.filter((p) => p.head === branch).map((p) => ({ url: this.#url(p), merged: p.state === "MERGED" }));
+  }
   pr(n: number): Pr {
     return this.#prs.find((p) => p.number === n)!;
   }
@@ -56,8 +66,51 @@ export class FakeGh {
     this.pr(n).files.push(...paths);
   }
 
-  exec: Exec = async (cmd, args) => {
+  /** Lands a commit on the default branch; a merge commit has two parents. */
+  land(parents = 1): string {
+    const sha = `main@${this.mainCommits.size + 1}`;
+    this.mainCommits.set(sha, parents);
+    return sha;
+  }
+
+  /** The `git` commands a revert uses, against a repository that is just this map. */
+  #git(args: string[], cwd: string | undefined): string {
+    this.gitCalls.push({ cwd, args });
+    const rest = args.filter((_, i) => !(args[i] === "-c" || args[i - 1] === "-c"));
+    const [a, b, ...more] = rest;
+    if (a === "fetch") return "";
+    if (a === "ls-remote") return this.#heads.has(rest[3]!) ? `${this.#heads.get(rest[3]!)}\trefs/heads/${rest[3]}\n` : "";
+    if (a === "merge-base") {
+      if (!this.mainCommits.has(rest[2]!)) throw Object.assign(new Error("exit 1"), { stderr: "" });
+      return "";
+    }
+    if (a === "rev-list") {
+      const sha = rest[4]!;
+      return `${sha}${" parent".repeat(this.mainCommits.get(sha) ?? 1)}\n`;
+    }
+    if (a === "worktree") return "";
+    if (a === "revert") {
+      if (b === "--abort") return "";
+      const sha = rest[rest.length - 1]!;
+      if (this.conflicting.has(sha)) throw Object.assign(new Error("revert failed"), { stderr: "CONFLICT" });
+      if ((this.mainCommits.get(sha) ?? 1) > 1 && !more.includes("-m")) throw Object.assign(new Error("revert failed"), { stderr: "is a merge but no -m option was given" });
+      return "";
+    }
+    if (a === "commit") return "";
+    if (a === "push") {
+      this.pushBranch(rest.find((x) => x.startsWith("HEAD:"))!.replace("HEAD:refs/heads/", ""));
+      return "";
+    }
+    throw new Error(`unexpected git command: ${rest.join(" ")}`);
+  }
+
+  constructor(slug = "me/sandbox") {
+    this.slug = slug;
+  }
+
+  exec: Exec = async (cmd, args, opts) => {
     this.calls.push([cmd, ...args]);
+    if (cmd === "git") return this.#git(args, opts?.cwd);
     if (cmd !== "gh") throw new Error(`unexpected command ${cmd}`);
     const line = ["gh", ...args].join(" ");
     const o = this.override?.(line);
