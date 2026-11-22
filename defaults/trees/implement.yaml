@@ -1,4 +1,4 @@
-# The first end-to-end path: a worker does the work, a PR is ensured, and landing is a stub.
+# The first end-to-end path: a worker does the work, a PR is ensured, and the land tree merges it.
 # The worker is retried: the runner steps its model and effort up after every two failures, and
 # stops retrying at the first failure at the hardest level (2 + 2 failures below hard, then 1 at hard).
 #
