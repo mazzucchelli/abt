@@ -64,7 +64,15 @@ export class RunnerLock {
     writeFileSync(join(this.#d.dir, "runner.heartbeat"), this.#d.clock.now().toISOString());
   }
 
+  /** Records why dispatch is refused (for `abt runner status`), or clears it. */
+  refuse(reason: string | undefined): void {
+    const file = join(this.#d.dir, "runner.refused");
+    if (reason === undefined) rmSync(file, { force: true });
+    else writeFileSync(file, reason);
+  }
+
   release(): void {
+    rmSync(join(this.#d.dir, "runner.refused"), { force: true });
     if (readHolder(this.#d.dir) === this.#d.pid) rmSync(join(this.#d.dir, "runner.lock"), { force: true });
     rmSync(join(this.#d.dir, "runner.heartbeat"), { force: true });
   }
@@ -84,6 +92,8 @@ export interface RunnerStatus {
   pid?: number;
   /** Time since the last heartbeat; absent when there has been none. */
   heartbeatAgeMs?: number;
+  /** Why the runner dispatches nothing (a failing startup self-test); absent when it dispatches. */
+  refused?: string;
 }
 
 /** What `abt runner status` reports: stopped, running, or alive-but-silent (stale). */
@@ -97,5 +107,11 @@ export function runnerStatus(deps: Pick<LockDeps, "dir" | "clock" | "isAlive">):
     age = undefined;
   }
   if (age === undefined || age > STALE_HEARTBEAT_MS) return { state: "stale", pid, ...(age !== undefined && { heartbeatAgeMs: age }) };
-  return { state: "running", pid, heartbeatAgeMs: age };
+  let refused: string | undefined;
+  try {
+    refused = readFileSync(join(deps.dir, "runner.refused"), "utf8");
+  } catch {
+    refused = undefined;
+  }
+  return { state: "running", pid, heartbeatAgeMs: age, ...(refused !== undefined && { refused }) };
 }

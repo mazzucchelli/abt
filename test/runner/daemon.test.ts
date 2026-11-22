@@ -229,3 +229,32 @@ test("a PR validation failure on the host is logged and does not stop dispatch",
   assert.ok(m.errors.some((e) => /PR validation for p: host down/.test(e)));
   await r.stop();
 });
+
+test("with a failing self-test the daemon runs, dispatches nothing and says why in its status", async () => {
+  let healthy = false;
+  const m = machine({}, {
+    ready: async () => {
+      if (!healthy) throw new Error("startup self-test failed: model-ids: unrecognized_model");
+    },
+  });
+  const id = await m.ticket();
+  const r = m.runner();
+  await r.start();
+  await r.idle();
+  assert.equal(await m.state(id), "Todo");
+  assert.equal(r.status().state, "running");
+  assert.match(r.status().refused ?? "", /unrecognized_model/);
+  assert.ok(m.errors.some((e) => e.includes("unrecognized_model")));
+  assert.equal(await sendNudge(join(m.home, "runner.sock"), id), "ok");
+  await r.idle();
+  assert.equal(await m.state(id), "Todo");
+  m.clock.advance(1);
+  assert.equal(r.status().state, "running");
+  // The next scan re-runs the test; once it passes the ticket is dispatched and the reason is gone.
+  healthy = true;
+  m.clock.advance(300_000);
+  await r.idle();
+  assert.equal(await m.state(id), "In review");
+  assert.equal(r.status().refused, undefined);
+  await r.stop();
+});
