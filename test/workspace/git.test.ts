@@ -25,6 +25,20 @@ test("ensure adds a linked worktree on a new branch, and is idempotent", async (
   assert.match(git("worktree", "list"), /feat\/abt-1-x/);
 });
 
+test("a new branch starts from the given base, not the checkout's HEAD", async () => {
+  const root = realpathSync(mkdtempSync(join(tmpdir(), "abt-git-")));
+  const dir = join(root, "repo");
+  const git = (...a: string[]) => execFileSync("git", ["-c", "user.name=t", "-c", "user.email=t@t", ...a], { cwd: dir, encoding: "utf8" }).trim();
+  execFileSync("git", ["init", "-q", "-b", "main", dir]);
+  git("commit", "-q", "--allow-empty", "-m", "base");
+  git("update-ref", "refs/remotes/origin/main", "HEAD");
+  const base = git("rev-parse", "HEAD");
+  git("checkout", "-q", "-b", "wip");
+  git("commit", "-q", "--allow-empty", "-m", "local work");
+  const path = await new GitWorkspace(dir, join(root, "worktrees"), "origin/main").ensure("ABT-1", "feat/abt-1-x");
+  assert.equal(execFileSync("git", ["rev-parse", "HEAD"], { cwd: path, encoding: "utf8" }).trim(), base);
+});
+
 test("remove deletes the worktree and prunes; the branch stays; removing twice is fine", async () => {
   const { git, ws } = repo();
   const path = await ws.ensure("ABT-1", "feat/abt-1-x");

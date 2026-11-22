@@ -35,3 +35,6 @@ export function projectIdFromRemote(url: string): string | undefined {
   const m = /^(?:https?:\/\/(?:[^@/]+@)?github\.com\/|git@github\.com:|ssh:\/\/git@github\.com\/)([^/\s]+)\/([^/\s]+?)(?:\.git)?\/?$/.exec(url.trim());
   return m ? `${m[1]}__${m[2]}` : undefined;
 }
+
+/** `owner/repo`, as `gh` names a repository, from a project ID. */
+export const repoSlug = (projectId: string): string => projectId.replace("__", "/");
