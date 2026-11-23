@@ -8,9 +8,10 @@ import { GhHost, GhProbe, GitFiles, remoteDefaultBranch, systemExec } from "./gi
 import { createInterface } from "node:readline/promises";
 import { acceptPins, checkPins, FilePins, settleOnboarding } from "./pins.ts";
 import { applyDraft, propose } from "./propose.ts";
+import type { CredentialRef } from "../tracker/config.ts";
 
 const USAGE = `usage: abt onboard probe [options]
-       abt onboard open --team <key> [--credentials-env <VAR>] [--draft <merge-policy.yaml>] [options]
+       abt onboard open --team <key> [--credentials-keychain <item> | --credentials-env <VAR>] [--draft <merge-policy.yaml>] [options]
        abt onboard settle [options]
        abt onboard pin [options]
 
@@ -23,9 +24,11 @@ options:
   --project <dir>     the project checkout (default: .)
   --no-write-apps     you checked that no installed GitHub App can write to the repo (a user token can't read that)
   --draft <file>      the merge policy as you edited it from the proposal
+  --credentials-keychain <item>  the Keychain item holding the Linear API key (default: abt-linear)
+  --credentials-env <VAR>        read the key from an env var instead; the runner daemon can't see one
 `;
 
-const VALUE_FLAGS = ["--project", "--team", "--credentials-env", "--draft"];
+const VALUE_FLAGS = ["--project", "--team", "--credentials-keychain", "--credentials-env", "--draft"];
 
 function parse(args: string[]): { flags: Record<string, string>; noApps: boolean } | undefined {
   const flags: Record<string, string> = {};
@@ -121,7 +124,8 @@ export async function onboardCommand(args: string[], io: OnboardIo = systemIo())
     }
 
     const team = parsed.flags["--team"];
-    if (!team) {
+    const credentials = trackerCredentials(parsed.flags);
+    if (!team || !credentials) {
       console.error(USAGE.trimEnd());
       return 2;
     }
@@ -129,7 +133,7 @@ export async function onboardCommand(args: string[], io: OnboardIo = systemIo())
     const landTree = readFileSync(fileURLToPath(new URL("../../defaults/trees/land.yaml", import.meta.url)), "utf8");
     const bundle = buildBundle({
       proposal, landTree, ...(claudeMd !== undefined && { claudeMd }),
-      tracker: { team, credentials: { env: parsed.flags["--credentials-env"] ?? "LINEAR_API_KEY" } },
+      tracker: { team, credentials },
     });
     const pr = await openOnboardingPr(host, proposal, bundle);
     await pins.writePending(project, pr.number);
@@ -140,3 +144,17 @@ export async function onboardCommand(args: string[], io: OnboardIo = systemIo())
     return 1;
   }
 }
+
+/**
+ * The Linear key's reference for the adapter doc. The runner daemon sees no shell environment, so the default is the
+ * Keychain item setup creates; `--credentials-env` is for a project only driven from a terminal. Both: undefined.
+ */
+export function trackerCredentials(flags: Record<string, string>): CredentialRef | undefined {
+  const keychain = flags["--credentials-keychain"];
+  const env = flags["--credentials-env"];
+  if (keychain !== undefined && env !== undefined) return undefined;
+  return env !== undefined ? { env } : { keychain: keychain ?? DEFAULT_LINEAR_KEYCHAIN_ITEM };
+}
+
+/** The Keychain item docs/setup.md has the user store the Linear API key under. */
+export const DEFAULT_LINEAR_KEYCHAIN_ITEM = "abt-linear";

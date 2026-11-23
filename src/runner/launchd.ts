@@ -1,6 +1,6 @@
 import { execFile } from "node:child_process";
-import { mkdirSync, rmSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
+import { accessSync, constants, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { delimiter, isAbsolute, join } from "node:path";
 
 export const LABEL = "dev.abt.runner";
 
@@ -27,6 +27,11 @@ export interface LaunchdDeps {
   home: string;
   /** The command launchd runs: the runner in the foreground. */
   program: string[];
+  /**
+   * The PATH the daemon (and so its workers) runs with. launchd's own is `/usr/bin:/bin:/usr/sbin:/sbin`, which
+   * misses Homebrew's `gh` and `claude`, so `runner start` hands over the PATH of the shell it runs in.
+   */
+  path?: string;
 }
 
 /** Installs and controls the one launchd agent that runs the runner daemon. */
@@ -50,6 +55,18 @@ export class LaunchdAgent {
     await this.#ok(["bootstrap", `gui/${this.#d.uid}`, this.plistPath]);
   }
 
+  /** The PATH the installed plist gives the daemon, or undefined when no agent is installed. */
+  installedPath(): string | undefined {
+    let text: string;
+    try {
+      text = readFileSync(this.plistPath, "utf8");
+    } catch {
+      return undefined;
+    }
+    const m = /<key>PATH<\/key>\s*<string>([^<]*)<\/string>/.exec(text);
+    return unesc(m?.[1] ?? LAUNCHD_PATH);
+  }
+
   /** Unloads the agent and removes its plist, so it neither restarts nor returns at login. */
   async stop(): Promise<void> {
     const r = await this.#d.launchctl.run(["bootout", `gui/${this.#d.uid}/${LABEL}`]);
@@ -66,9 +83,34 @@ export class LaunchdAgent {
   }
 }
 
-const esc = (s: string) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+/** The PATH launchd gives an agent whose plist sets none. */
+export const LAUNCHD_PATH = "/usr/bin:/bin:/usr/sbin:/sbin";
 
-export function plist(d: Pick<LaunchdDeps, "program" | "home">): string {
+/**
+ * Where `command` resolves on `path`, as a spawn would find it: a name containing a slash is taken as given, a bare
+ * name is looked up in each PATH entry. Undefined when it isn't there or isn't executable.
+ */
+export function which(command: string, path: string): string | undefined {
+  const candidates = command.includes("/") ? [command] : path.split(delimiter).filter((dir) => isAbsolute(dir)).map((dir) => join(dir, command));
+  return candidates.find((file) => {
+    try {
+      accessSync(file, constants.X_OK);
+      return true;
+    } catch {
+      return false;
+    }
+  });
+}
+
+/** The commands of `commands` that `path` can't find, each with why the daemon needs it. */
+export function missingOnPath(commands: { command: string; why: string }[], path: string): string[] {
+  return commands.filter((c) => !which(c.command, path)).map((c) => `${c.command} (${c.why}) is not on the runner's PATH ${path}`);
+}
+
+const esc = (s: string) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+const unesc = (s: string) => s.replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&amp;/g, "&");
+
+export function plist(d: Pick<LaunchdDeps, "program" | "home" | "path">): string {
   return `<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
@@ -83,7 +125,7 @@ ${d.program.map((a) => `    <string>${esc(a)}</string>`).join("\n")}
   <dict>
     <key>ABT_HOME</key>
     <string>${esc(d.home)}</string>
-  </dict>
+${d.path === undefined ? "" : `    <key>PATH</key>\n    <string>${esc(d.path)}</string>\n`}  </dict>
   <key>RunAtLoad</key>
   <true/>
   <key>KeepAlive</key>

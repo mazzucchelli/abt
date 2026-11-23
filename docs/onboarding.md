@@ -42,12 +42,7 @@ Open Claude Code (with the plugin) at the project root and type `/abt:onboard`. 
 
 Read the PR like any other. Two things to check or change on its branch before merging:
 
-- **Credentials.** `onboard open` writes `credentials: { env: LINEAR_API_KEY }` (or the name you passed with `--credentials-env`). The runner can't see your shell's environment, so change it to the Keychain item you created in [setup](setup.md#2-store-the-credentials):
-
-  ```yaml
-  credentials:
-    keychain: abt-linear
-  ```
+- **Credentials.** `onboard open` writes `credentials: { keychain: abt-linear }`, the Keychain item you created in [setup](setup.md#2-store-the-credentials) (or the item you passed with `--credentials-keychain`). Check the item name matches. `--credentials-env <VAR>` writes an env var instead, but the runner can't see your shell's environment, so only use it for a project you drive from a terminal.
 
 - **States.** The generated `states` assume Linear's default names plus a `Needs You` state. Make them match your team exactly.
 

@@ -21,10 +21,13 @@ The reason follows. The usual ones:
 - *no adapter doc*: `.agents/abt/workflow.md` isn't on the default branch yet. Merge the onboarding PR.
 - *origin is not a GitHub remote*: abt only supports GitHub in v1.
 - *`origin/<branch>` is not known*: run `git fetch origin` once in the project.
-- *tracker credential not found*: the adapter doc's credential can't be resolved by the daemon. Use a `keychain:` credential (see [known limits](#known-limits-of-v1)).
+- *tracker credential not found*: the adapter doc's credential can't be resolved by the daemon. Check that the Keychain item it names exists (`security find-generic-password -s abt-linear`). An `env:` credential never works here (see [known limits](#known-limits-of-v1)).
 
 **`runner status` shows "dispatch refused: …".**
-The startup self-test failed, so no worker will start. Run `abt selftest` in a terminal and fix what it reports: usually the Keychain token (`Claude Code token not found: add it to the Keychain as "abt-claude-oauth"`), a Claude Code older than the profile's `min-version`, or a `binary` launchd can't find.
+The startup self-test failed, so no worker will start. Run `abt selftest` in a terminal and fix what it reports: usually the Keychain token (`Claude Code token not found: add it to the Keychain as "abt-claude-oauth"`), a Claude Code older than the profile's `min-version`, or a `binary` the runner's PATH can't find.
+
+**`runner start` refuses with "… is not on the runner's PATH".**
+`abt runner start` gives the daemon the PATH of the shell you run it in, and refuses when `gh` or the launch profile's `binary` isn't on it. Install the missing tool, or run `abt runner start` again from a shell whose PATH finds it. `runner status` prints a `missing:` line when a tool has gone missing since (an uninstall, or a Homebrew move).
 
 **A ticket stays in Todo.**
 Check that it carries both the abt marker label and a work-type label, that the project is in `$ABT_HOME/config.yaml`, and that all its blockers are Done. `abt runner nudge <ticket>` asks the runner for a pass now.
@@ -50,10 +53,7 @@ Read its transcript in `~/.agents/abt/runs/<ticket>/` and the kept worktree unde
 ## Known limits of v1
 
 - **One stack.** Linear, GitHub through `gh`, Claude Code, and macOS (launchd and Keychain). Nothing else is wired yet.
-- **The daemon's environment is minimal.** launchd starts the runner with only `ABT_HOME` set and launchd's default `PATH` (`/usr/bin:/bin:/usr/sbin:/sbin`). Consequences:
-  - an `env:` tracker credential (such as the `LINEAR_API_KEY` that `onboard open` writes by default) is not visible to the daemon. Use `keychain:`;
-  - set the launch profile's `binary` to Claude Code's absolute path;
-  - `gh` installed with Homebrew (`/opt/homebrew/bin`) may not be found by the daemon. If `runner.err.log` shows `spawn gh ENOENT`, this is why.
+- **The daemon's environment is minimal.** launchd starts the runner with only `ABT_HOME` and the `PATH` of the shell that ran `abt runner start`. Nothing else from your shell profile reaches it, so an `env:` tracker credential is not visible to the daemon: use `keychain:` (what `onboard open` writes by default). After changing your PATH, run `abt runner stop && abt runner start` to hand the new one over.
 - **Spike and bootstrap** have no trees yet and are refused.
 - **Presets.** Only `pr-only` and `solo-self` resolve. `solo-server` (protected branch) and `team-reviewed` (several writers) are recognised but treated as pr-only.
 - **No published releases.** Pin an install from a tag you make in your own clone ([setup step 8](setup.md#8-pin-an-install-recommended-once-you-use-it-for-real)).
