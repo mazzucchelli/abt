@@ -6,7 +6,7 @@ import type { DecisionRecord, Result } from "./log/record.ts";
 import { assessTicket, effectiveTier, type RiskDeps } from "./risk/assess.ts";
 import { tierFor } from "./routing.ts";
 import { ticketFacts } from "./runner/scheduler.ts";
-import { escalate as raiseAskPoint, postAskPoint, resumeFromReplies } from "./escalation.ts";
+import { escalate as raiseAskPoint, ownerAck, postAskPoint, resumeFromReplies } from "./escalation.ts";
 import { postSummary } from "./summary.ts";
 import { applyRetype, unraisedRetypeAsk } from "./retype.ts";
 import type { Notifier } from "./notify/contract.ts";
@@ -81,6 +81,10 @@ export async function runTicket(deps: TicketRunDeps): Promise<TicketRunResult> {
       },
     );
     return { run, result: "skipped", terminal: false };
+  }
+  if (first.state === "Needs you" && first.workType === "research") {
+    // Research that escalated while waiting for the ack is finished by the ack itself: back to In review, where the tree sees it.
+    if (await acknowledged(deps, run, first.owner)) first = await tracker.readTicket(ticket);
   }
   if (first.state === "Needs you") {
     // The human loop: only the owner's reply resumes a ticket, and silence only earns a reminder.
@@ -270,6 +274,19 @@ async function assessOnce(deps: TicketRunDeps, run: string): Promise<void> {
  * there is no worktree to set up around it. A tree waiting on a human ack is `running` and sits in
  * In review; the next run picks it up again. Success is Done, with nothing committed anywhere.
  */
+/** Moves a Needs you research ticket back to In review on the owner's ack. The override resets the tree's timeouts. */
+async function acknowledged(deps: TicketRunDeps, run: string, owner: string): Promise<boolean> {
+  const { tracker, log, ticket } = deps;
+  const ack = ownerAck((await tracker.readCommentsSince(ticket)).comments, owner);
+  if (!ack || log.read(ticket).some((r) => r.kind === "override" && r.payload.comment === ack.id)) return false;
+  log.append(ticket, {
+    run, node: null, kind: "override", decision: "owner acknowledged the findings", why: `the owner replied ${JSON.stringify(ack.body.trim())}`, evidence: ack.id, result: "ok",
+    payload: { target: "escalation", by: owner, value: { command: "ack" }, comment: ack.id },
+  });
+  await tracker.setState(ticket, "In review");
+  return true;
+}
+
 async function runResearch(deps: TicketRunDeps, run: string): Promise<TicketRunResult> {
   const { tracker, log, ticket } = deps;
   const state = (await tracker.readTicket(ticket)).state;

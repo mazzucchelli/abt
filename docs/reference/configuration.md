@@ -67,7 +67,7 @@ Read from the project's **default branch**, never from a working copy.
 | File | What | Reference |
 | --- | --- | --- |
 | `merge-policy.yaml` | when abt may merge | [merge policy](merge-policy.md) |
-| `workflow.md` | the adapter doc: tracker and isolation | [adapter doc](adapter-doc.md) |
+| `workflow.md` | the adapter doc: tracker, isolation and research review | [adapter doc](adapter-doc.md) |
 | `facts.yaml` | the facts snapshot the policy was agreed against | written by onboarding |
 | `trees/<name>.yaml` | trees that replace the shipped ones of the same name | [customize a tree](../how-to/customize-a-tree.md) |
 | `checks/` | scripts your trees run with `script:` | [add a check](../how-to/add-a-check.md) |

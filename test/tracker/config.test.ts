@@ -73,3 +73,11 @@ test("rejects two lifecycle states mapped to the same tracker state", () => {
   const source = doc(valid.replace("Needs you: Needs You", "Needs you: In Review"));
   assert.throws(() => parseAdapterDoc(source), /"In Review" is mapped to both "In review" and "Needs you"/);
 });
+
+test("research.review is read from the front matter, and only ack or auto are accepted", () => {
+  assert.equal(parseAdapterDoc(doc(valid)).research, undefined);
+  const withResearch = (v: string) => doc(valid).replace("\n---\n\n#", `\nresearch:\n  review: ${v}\n---\n\n#`);
+  assert.deepEqual(parseAdapterDoc(withResearch("auto")).research, { review: "auto" });
+  assert.deepEqual(parseAdapterDoc(withResearch("ack")).research, { review: "ack" });
+  assert.throws(() => parseAdapterDoc(withResearch("yes")), AdapterConfigError);
+});

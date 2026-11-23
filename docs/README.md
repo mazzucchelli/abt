@@ -34,7 +34,7 @@ Start at the top if abt is new to you. Each page links to the next.
 | [Checks, actions and agents](reference/registry.md) | Every name a tree may use, and what it reads or does. |
 | [Shipped trees](reference/shipped-trees.md) | `claim`, `implement`, `land`, `research`, `cleanup`, annotated. |
 | [Merge policy](reference/merge-policy.md) | `.agents/abt/merge-policy.yaml`, field by field. Schema: [`schema/merge-policy.schema.json`](../schema/merge-policy.schema.json). |
-| [Adapter doc](reference/adapter-doc.md) | `.agents/abt/workflow.md`: tracker mapping and worker isolation. |
+| [Adapter doc](reference/adapter-doc.md) | `.agents/abt/workflow.md`: tracker mapping, worker isolation and research review. |
 | [Configuration](reference/configuration.md) | The abt home, the two global config files, environment variables, file locations. |
 | [CLI](reference/cli.md) | Every `abt` command and the `/abt:` slash commands. |
 | [Reading a decision log](reference/decision-log.md) | `abt log show`, record kinds, results, and how to audit a run. Schema: [`schema/decision-log.schema.json`](../schema/decision-log.schema.json). |

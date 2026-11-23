@@ -11,7 +11,7 @@ import type { DecisionLog } from "./log/store.ts";
 import { parseTree, type TreeNode } from "./tree.ts";
 import type { TreeStore } from "./trees.ts";
 import { DEFAULT_SCRIPT_TIMEOUT_MS, runScript } from "./script.ts";
-import { askPointPolicy, decidedAskPointsSection, escalate as escalateAskPoint, handleAskPoint, unsettledAskPoints } from "./escalation.ts";
+import { ACK_REQUEST_KIND, askPointPolicy, decidedAskPointsSection, escalate as escalateAskPoint, handleAskPoint, ownerAck, unsettledAskPoints } from "./escalation.ts";
 import type { Notifier } from "./notify/contract.ts";
 import { SPEC_APPROVAL_QUESTION, SPEC_LINK, SPEC_COMMENT, specApproved, specApprovalAsked, specSkipLogged, validateSpec } from "./spec.ts";
 import { fileBootstrap } from "./risk/bootstrap.ts";
@@ -267,10 +267,16 @@ class Pass {
         return { result: "ok", why: t.claimed ? "already claimed" : "claimed, no worktree" };
       }
       case "await-ack": {
+        const t = await tracker.readTicket(ticket);
         const comments = (await tracker.readCommentsSince(ticket)).comments;
-        if (comments.some((c) => c.kind === "ack")) return { result: "ok", why: "a human acknowledged the findings" };
-        if ((await tracker.readTicket(ticket)).state !== "In review") await tracker.setState(ticket, "In review");
-        return { result: "running", why: "waiting for a human to acknowledge" };
+        const ack = ownerAck(comments, t.owner);
+        if (ack) return { result: "ok", why: "the owner acknowledged the findings", evidence: ack.id };
+        // Each new gist gets its own request, so an ack always answers the findings the owner is looking at.
+        if (comments.findLastIndex((c) => c.kind === ACK_REQUEST_KIND) < comments.findLastIndex((c) => c.kind === "gist")) {
+          await tracker.postComment(ticket, { kind: ACK_REQUEST_KIND, body: "The findings are ready. Reply `ack` to accept them and close this ticket.", data: {} });
+        }
+        if (t.state !== "In review") await tracker.setState(ticket, "In review");
+        return { result: "running", why: "waiting for the owner to reply ack" };
       }
       case "escalate": {
         const why = this.#lastFailure() ?? "nothing else in the tree could finish this ticket";
