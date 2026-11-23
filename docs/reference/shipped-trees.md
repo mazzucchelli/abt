@@ -85,7 +85,7 @@ seq:
   - action: cleanup
 ```
 
-Research ends in a doc, never in code: no branch, no worktree, no PR. The judge sits inside the `ensure`, so findings it rejects send the worker back with the judge's reason.
+Research ends in a doc, never in code: no branch, no worktree, no PR. The judge sits inside the `ensure`, so findings it rejects send the worker back with the judge's reason. `review-auto` holds when the [adapter doc](adapter-doc.md#research) sets `research.review: auto`; otherwise `await-ack` waits for the owner to reply `ack`.
 
 ## cleanup
 

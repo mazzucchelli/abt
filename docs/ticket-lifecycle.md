@@ -81,7 +81,7 @@ Dispatch state is private and disposable. On start the runner clears it, kills o
 
 ## Research tickets
 
-A `research` ticket follows its own [tree](reference/shipped-trees.md#research): it is claimed with no branch or worktree, a worker writes findings to the project's docs home and links them from the ticket (with a one-paragraph gist), and a judge checks that the findings cite primary sources. Then it moves to In review and waits up to 2 days for an acknowledgement, then escalates to Needs you, where you answer it like any other escalation. (In v1 neither an acknowledgement comment nor the project's `review=auto` switch can be set from Linear or the CLI yet, so expect the escalation. See [known limits](troubleshooting.md#known-limits-of-v1).)
+A `research` ticket follows its own [tree](reference/shipped-trees.md#research): it is claimed with no branch or worktree, a worker writes findings to the project's docs home and links them from the ticket (with a one-paragraph gist), and a judge checks that the findings cite primary sources. Then it moves to In review, and abt comments that the findings are ready. Reply `ack` on the ticket, as its owner, to accept them: the ticket goes to Done. With no ack within 2 days it escalates to Needs you, where `ack` still closes it. A project that doesn't want to review research sets `research.review: auto` in its [adapter doc](reference/adapter-doc.md#research), and finished research goes straight to Done.
 
 ---
 

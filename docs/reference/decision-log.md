@@ -39,7 +39,7 @@ Every record also has an `evidence` pointer (a PR URL, a transcript path, a comm
 | `routing` | before a worker launch: grade, model, effort, and why (floors, judge, step-ups) |
 | `ask-point` | a worker raises a question (`open`), or the runner settles it (`decided` or `escalated`) |
 | `escalation` | the ticket goes to Needs you, with what it needs from you |
-| `override` | the owner's reply acts on the ticket: answer, abandon, re-run, raise tier |
+| `override` | the owner's reply acts on the ticket: answer, abandon, re-run, raise tier, or ack on research |
 | `retype` | you changed the work type |
 | `probe` | a drift re-probe found a difference |
 | `merge` | `runner-merge` merged a PR: SHA, policy hash, land tree hash |

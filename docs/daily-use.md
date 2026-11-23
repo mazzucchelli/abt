@@ -73,6 +73,7 @@ Reply **on the ticket**, as its owner, with one of the commands below. The owner
 | `re-run` | run the ticket again |
 | `raise tier` | raise the risk tier one step (more of the following work comes to you) |
 | `abandon` | stop; the ticket becomes Abandoned and its worktree is removed |
+| `ack` | research only: accept the findings; the ticket goes to Done |
 
 Anything else is logged as a note and does not resume the ticket. Silence is never consent: after a while abt reminds you.
 
@@ -83,6 +84,10 @@ If you'd rather answer from the chat, tell the agent. It runs `abt reply MP-12 "
 Medium- and high-risk PRs, and any PR above the policy's `risk_cap`, need your approval on GitHub. Review and approve as usual. On its next poll the land tree sees the approval, re-checks CI and the head SHA, and merges. If nobody approves within 2 days, the ticket goes to Needs you.
 
 In a pr-only project, abt leaves the PR for you to merge. Merging it yourself moves the ticket to Done.
+
+## Accept research findings
+
+When research is done, abt links the findings on the ticket, moves it to In review and comments that they're ready. Read them and reply `ack` on the ticket, as its owner, to accept them; the ticket goes to Done. Unacknowledged findings go to Needs you after 2 days, where `ack` still works. To skip this for a project, set `research.review: auto` in its [adapter doc](reference/adapter-doc.md#research).
 
 ## Change a ticket's work type mid-run
 

@@ -40,6 +40,8 @@ export interface AdapterConfig {
   tracker: TrackerConfig;
   /** What each parallel worker must not share: ports, database, build output. */
   isolation?: IsolationConfig;
+  /** How finished research ends: `ack` (the default) waits for the owner's ack; `auto` reaches Done without one. */
+  research?: { review: "ack" | "auto" };
 }
 
 export const ADAPTER_DOC_PATH = ".agents/abt/workflow.md";
@@ -65,7 +67,7 @@ export function parseAdapterDoc(source: string): AdapterConfig {
     throw new AdapterConfigError(`adapter doc front matter is not valid YAML: ${(e as Error).message.split("\n")[0]}`);
   }
   const root = object(raw, "front matter");
-  noExtra(root, ["tracker", "isolation"], "front matter");
+  noExtra(root, ["tracker", "isolation", "research"], "front matter");
   const t = object(root.tracker, "tracker");
   noExtra(t, ["kind", "team", "credentials", "states", "labels"], "tracker");
 
@@ -74,6 +76,7 @@ export function parseAdapterDoc(source: string): AdapterConfig {
   }
   return {
     ...(root.isolation !== undefined && { isolation: isolation(root.isolation) }),
+    ...(root.research !== undefined && { research: research(root.research) }),
     tracker: {
       kind: "linear",
       team: text(t.team, "tracker.team"),
@@ -94,6 +97,13 @@ function object(v: unknown, where: string): Record<string, unknown> {
 function text(v: unknown, where: string): string {
   if (typeof v !== "string" || v.trim() === "") throw new AdapterConfigError(`${where} must be a non-empty string`);
   return v;
+}
+
+function research(v: unknown): { review: "ack" | "auto" } {
+  const o = object(v, "research");
+  noExtra(o, ["review"], "research");
+  if (o.review !== "ack" && o.review !== "auto") throw new AdapterConfigError("research.review must be `ack` or `auto`");
+  return { review: o.review };
 }
 
 function noExtra(o: Record<string, unknown>, allowed: readonly string[], where: string): void {

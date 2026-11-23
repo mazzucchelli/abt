@@ -4,7 +4,7 @@ import type { Notifier } from "./notify/contract.ts";
 import { effectiveTier } from "./risk/assess.ts";
 import { postSummary } from "./summary.ts";
 import { raise } from "./risk/rules.ts";
-import { REPLY_KIND, type RiskTier, type Tracker } from "./tracker/contract.ts";
+import { REPLY_KIND, type Comment, type RiskTier, type Tracker } from "./tracker/contract.ts";
 
 /** A moment where an agent would ask the human. It is only a recommendation: the runner applies the risk policy. */
 export interface AskPoint {
@@ -128,6 +128,22 @@ type Command =
   | { command: "re-run" }
   | { command: "raise-tier" }
   | { command: "note" };
+
+/** The comment abt posts when research findings are ready. The owner's ack answers the latest one. */
+export const ACK_REQUEST_KIND = "ack-request";
+
+/** Whether a reply acknowledges research findings: `ack`, in any case, trailing punctuation ignored. */
+export const isAck = (body: string): boolean => body.trim().replace(/[.!\s]+$/, "").toLowerCase() === "ack";
+
+/**
+ * The owner's `ack` of the current findings: a reply after the latest ack request, which itself came after
+ * the latest gist. An ack of findings the worker has since replaced does not count.
+ */
+export function ownerAck(comments: Comment[], owner: string): Comment | undefined {
+  const asked = comments.findLastIndex((c) => c.kind === ACK_REQUEST_KIND);
+  if (owner === "" || asked === -1 || asked < comments.findLastIndex((c) => c.kind === "gist")) return undefined;
+  return comments.slice(asked + 1).find((c) => c.kind === REPLY_KIND && c.author === owner && isAck(c.body));
+}
 
 /** The fixed reply vocabulary: answer, abandon, re-run, raise tier. A bare "yes" is a bare answer; anything else is a note. */
 export function parseReply(body: string): Command {

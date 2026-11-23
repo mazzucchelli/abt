@@ -52,6 +52,8 @@ export interface ProjectPorts {
   /** Where the agreed risk map is read from. Not the landing policy: the map alone feeds the floors. */
   riskPolicy?: PolicyStore;
   maxWorkers?: number;
+  /** The adapter doc's `research.review: auto`: finished research reaches Done without the owner's ack. */
+  reviewAuto?: boolean;
   /** Re-probes the project before every autonomous merge and watches the default branch after it. */
   guard?: LandingGuard;
   /** The name of the launch profile the project's workers run under; a usage limit pauses dispatch per profile. */
@@ -90,6 +92,7 @@ export function assembleProject(p: ProjectPorts, shared: SharedDeps): RunnerProj
     deps: (ticket) => ({
       ticket, tracker, codeHost, harness, workspace, envs, log, newId, plugin, project: p.trees,
       ...(judge && { judge }), ...(routing && { routing }), ...(risk && { risk }), ...(riskPolicy && { riskPolicy }), ...(guard && { guard }), ...(pins && { pins }),
+      ...(p.reviewAuto && { reviewAuto: true }),
     }),
   };
 }
@@ -196,6 +199,7 @@ async function buildRealPorts(entry: ProjectEntry, ctx: RealContext): Promise<Pr
     risk: { classifier: risk },
     riskPolicy: new GitPolicy(entry.path, tip),
     ...(entry.maxWorkers && { maxWorkers: entry.maxWorkers }),
+    ...(doc.research?.review === "auto" && { reviewAuto: true }),
     profileName: CLAUDE_SUBSCRIPTION,
   };
 }

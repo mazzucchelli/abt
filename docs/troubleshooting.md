@@ -55,6 +55,5 @@ Read its transcript in `~/.agents/abt/runs/<ticket>/` and the kept worktree unde
   - set the launch profile's `binary` to Claude Code's absolute path;
   - `gh` installed with Homebrew (`/opt/homebrew/bin`) may not be found by the daemon. If `runner.err.log` shows `spawn gh ENOENT`, this is why.
 - **Spike and bootstrap** have no trees yet and are refused.
-- **Research acknowledgement.** The research tree waits for an acknowledgement that can't be given from Linear yet, and `review=auto` can't be turned on, so finished research escalates to Needs you after 2 days. Answer it there.
 - **Presets.** Only `pr-only` and `solo-self` resolve. `solo-server` (protected branch) and `team-reviewed` (several writers) are recognised but treated as pr-only.
 - **No published releases.** Pin an install from a tag you make in your own clone ([setup step 8](setup.md#8-pin-an-install-recommended-once-you-use-it-for-real)).
