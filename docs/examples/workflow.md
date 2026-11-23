@@ -19,6 +19,10 @@ tracker:
     abt: abt
     workType: { implement: implement, research: research, spike: spike, bootstrap: bootstrap }
     risk: { low: "risk:low", medium: "risk:medium", high: "risk:high" }
+# Optional. `ack` (the default): finished research waits for the owner to reply `ack`.
+# `auto`: it reaches Done without one.
+research:
+  review: ack
 ---
 
 # abt workflow adapter

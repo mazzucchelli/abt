@@ -10,7 +10,7 @@ import { FakeJudge } from "../src/judge/fake.ts";
 import { DecisionLog } from "../src/log/store.ts";
 import { runTicket } from "../src/ticket-run.ts";
 import { DirTrees, MemoryTrees } from "../src/trees.ts";
-import { InMemoryTracker } from "../src/tracker/fake.ts";
+import { FAKE_OWNER, InMemoryTracker } from "../src/tracker/fake.ts";
 import { FakeWorkspace } from "../src/workspace/fake.ts";
 
 const defaults = new DirTrees(new URL("../defaults/trees/", import.meta.url).pathname);
@@ -105,10 +105,45 @@ test("with review=auto off the ticket waits for a human ack, then reaches Done",
   assert.equal(again.result, "running");
   assert.equal(w.harness.requests.length, 1, "waiting for the human re-runs no worker");
 
-  await w.tracker.postComment(w.id, { kind: "ack", body: "Looks good." });
+  const requests = (await w.tracker.readCommentsSince(w.id)).comments.filter((c) => c.kind === "ack-request");
+  assert.equal(requests.length, 1, "the owner is asked once, not on every pass");
+
+  await w.tracker.reply(w.id, FAKE_OWNER, "Ack.");
   const done = await w.run();
   assert.equal(done.result, "ok");
   assert.equal(await w.state(), "Done");
+});
+
+test("an ack from anyone but the owner, or any other reply, does not close the ticket", async () => {
+  const w = await world();
+  await w.run();
+  await w.tracker.reply(w.id, "someone-else", "ack");
+  await w.tracker.reply(w.id, FAKE_OWNER, "ack, but can you add the RFC link?");
+  assert.equal((await w.run()).result, "running");
+  assert.equal(await w.state(), "In review");
+});
+
+test("an ack given before the findings were posted does not count", async () => {
+  const w = await world();
+  await w.tracker.reply(w.id, FAKE_OWNER, "ack");
+  assert.equal((await w.run()).result, "running");
+  assert.equal(await w.state(), "In review");
+});
+
+test("after the ack timeout escalates, the owner's ack in Needs you closes the ticket", async () => {
+  const w = await world();
+  await w.run();
+  w.clock.advance(3 * 86_400_000);
+  assert.equal((await w.run()).result, "fail");
+  assert.equal(await w.state(), "Needs you");
+
+  await w.tracker.reply(w.id, FAKE_OWNER, "ack");
+  const r = await w.run();
+  assert.equal(r.result, "ok");
+  assert.equal(r.terminal, true);
+  assert.equal(await w.state(), "Done");
+  assert.equal(w.harness.requests.length, 1, "the ack re-runs no worker");
+  assert.ok(w.log.read(w.id).some((x) => x.kind === "override" && x.decision === "owner acknowledged the findings"));
 });
 
 test("findings that passed the judge are not judged again while the ticket waits for the ack", async () => {

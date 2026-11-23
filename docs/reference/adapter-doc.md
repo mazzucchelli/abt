@@ -1,6 +1,6 @@
 # Adapter doc
 
-`.agents/abt/workflow.md` tells the runner how a project is set up: which tracker team to use, how to reach it, and what parallel workers must not share. Only the YAML front matter is read; the markdown body is free text. Onboarding generates it. A commented example is in [`docs/examples/workflow.md`](../examples/workflow.md).
+`.agents/abt/workflow.md` tells the runner how a project is set up: which tracker team to use, how to reach it, what parallel workers must not share, and how research ends. Only the YAML front matter is read; the markdown body is free text. Onboarding generates it. A commented example is in [`docs/examples/workflow.md`](../examples/workflow.md).
 
 It is a protected file: pinned, high risk to change, and validated by the `abt/validate` status on any PR that touches it.
 
@@ -26,6 +26,8 @@ isolation:
   ports: { web: 3000, api: 4000 }
   database: "app_{ticket}"
   buildDir: ".abt-build/{ticket}"
+research:
+  review: ack
 ---
 
 # abt workflow adapter
@@ -65,3 +67,11 @@ What each parallel worker gets of its own, so several workers can run your app a
 | `buildDir` | a path relative to the worktree (or absolute); `{lane}` and `{ticket}` are filled in | `ABT_BUILD_DIR`, as an absolute path |
 
 Every worker also gets `ABT_LANE`. Make your dev server, test setup and build read these variables (falling back to your usual defaults when they're unset). Without an `isolation` section, workers get no extra environment.
+
+## `research`
+
+How a finished [research ticket](../ticket-lifecycle.md#research-tickets) ends. Optional.
+
+| Key | Meaning |
+| --- | --- |
+| `review` | `ack` (the default): the ticket waits in In review for the owner to reply `ack`. `auto`: it reaches Done as soon as the findings pass the judge. This is the `review-auto` check in the research tree. |

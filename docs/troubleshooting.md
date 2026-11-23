@@ -55,6 +55,5 @@ Read its transcript in `~/.agents/abt/runs/<ticket>/` and the kept worktree unde
 - **One stack.** Linear, GitHub through `gh`, Claude Code, and macOS (launchd and Keychain). Nothing else is wired yet.
 - **The daemon's environment is minimal.** launchd starts the runner with only `ABT_HOME` and the `PATH` of the shell that ran `abt runner start`. Nothing else from your shell profile reaches it, so an `env:` tracker credential is not visible to the daemon: use `keychain:` (what `onboard open` writes by default). After changing your PATH, run `abt runner stop && abt runner start` to hand the new one over.
 - **Spike and bootstrap** have no trees yet and are refused.
-- **Research acknowledgement.** The research tree waits for an acknowledgement that can't be given from Linear yet, and `review=auto` can't be turned on, so finished research escalates to Needs you after 2 days. Answer it there.
 - **Presets.** Only `pr-only` and `solo-self` resolve. `solo-server` (protected branch) and `team-reviewed` (several writers) are recognised but treated as pr-only.
 - **No published releases.** Pin an install from a tag you make in your own clone ([setup step 8](setup.md#8-pin-an-install-recommended-once-you-use-it-for-real)).

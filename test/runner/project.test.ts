@@ -104,6 +104,16 @@ test("assembleProject hands a ticket's run its judge, routing, risk and lane dep
   assert.equal(deps.judge, judge);
   assert.equal(deps.routing, routing);
   assert.equal(deps.envs, envs);
+  assert.equal(deps.reviewAuto, undefined, "review=auto is off unless the adapter doc turns it on");
+});
+
+test("assembleProject passes the adapter doc's review=auto to every ticket's run", () => {
+  const envs = new WorkerEnvs(mkdtempSync(join(tmpdir(), "abt-lanes-")), undefined);
+  const p = assembleProject(
+    { name: "p", tracker: new InMemoryTracker(), codeHost: new FakeCodeHost(), harness: new FakeHarness(), workspace: new FakeWorkspace(), envs, defaultBranch: "main", trees: new MemoryTrees(".agents/abt/trees", {}), reviewAuto: true },
+    { log: new DecisionLog(mkdtempSync(join(tmpdir(), "abt-home-")), new FakeClock(), () => "x"), newId: () => "x", plugin },
+  );
+  assert.equal(p.deps("ABT-1").reviewAuto, true);
 });
 
 test("a served project wires the project's tracker, a git workspace, the Claude harness, the GitHub host and a judge that answers", async () => {
@@ -133,6 +143,12 @@ test("a served project wires the project's tracker, a git workspace, the Claude 
   const verdict = await deps.judge!.ask({ question: "Do the findings cite primary sources?", ticket: await ctx.tracker.createTicket({ title: "t", body: "" }) });
   assert.deepEqual(verdict, { verdict: true, why: "yes" });
   assert.ok(ctx.specs.length > 0);
+});
+
+test("a served project's adapter doc turns review=auto on with research.review: auto", async () => {
+  const { home, entry } = project("auto", ADAPTER.replace(/---\n$/, "research:\n  review: auto\n---\n"));
+  const [p] = (await serveProjects([entry], context(home))).projects;
+  assert.equal(p!.deps("ABT-1").reviewAuto, true);
 });
 
 test("serveProjects serves each configured project and names it in the startup log; a broken one is skipped with its reason", async () => {
