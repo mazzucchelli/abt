@@ -32,13 +32,13 @@ abt reply   <ticket> <text...>
 
 ```
 abt onboard probe  [--no-write-apps]
-abt onboard open   --team <key> [--credentials-env <VAR>] [--draft <merge-policy.yaml>] [--no-write-apps]
+abt onboard open   --team <key> [--credentials-keychain <item> | --credentials-env <VAR>] [--draft <merge-policy.yaml>] [--no-write-apps]
 abt onboard settle
 abt onboard pin
 ```
 
 - `probe`: prints the facts, proposed preset and reasons, policy draft, matched risk catalogue and gaps, as JSON.
-- `open`: opens the onboarding PR. `--draft` is your edited policy. `--credentials-env` names the env var for the Linear key (default `LINEAR_API_KEY`).
+- `open`: opens the onboarding PR. `--draft` is your edited policy. `--credentials-keychain` names the Keychain item holding the Linear key (default `abt-linear`); `--credentials-env` names an env var instead, which the runner daemon can't see.
 - `settle`: records pins once you've merged the onboarding PR (the runner also does this on its scan).
 - `pin`: re-pins the protected files as the default branch has them now. Needs you at a terminal, typing the project id. Refused to workers.
 
@@ -50,8 +50,8 @@ abt watch [--once]
 abt selftest
 ```
 
-- `start` / `stop`: install and load, or unload, the launchd agent `dev.abt.runner`.
-- `status`: exit 0 when running, 3 otherwise; also shows whether dispatch is refused and why.
+- `start` / `stop`: install and load, or unload, the launchd agent `dev.abt.runner`. `start` hands the agent this shell's `PATH`, and refuses when `gh` or the launch profile's `binary` isn't on it.
+- `status`: exit 0 when running, 3 otherwise; also shows whether dispatch is refused and why, and a `missing:` line for `gh` or `binary` when the agent's PATH no longer finds it.
 - `nudge`: ask the running runner for a pass on a ticket now.
 - `run`: the daemon in the foreground (what launchd runs). `--world` runs it against a fake world.
 - `watch`: read-only live board (`b` board, `j`/`k` scroll the log, space pause, `q` quit). `--once` prints one frame.

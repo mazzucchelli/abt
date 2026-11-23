@@ -2,9 +2,10 @@
 tracker:
   kind: linear
   team: ABT
-  # Credentials are referenced by name, never stored here: `env: VAR` or `keychain: item`.
+  # Credentials are referenced by name, never stored here: `keychain: item` or `env: VAR`.
+  # The runner daemon only sees the Keychain, so use `keychain:` for any project it serves.
   credentials:
-    env: LINEAR_API_KEY
+    keychain: abt-linear
   # Every lifecycle state must map to one of the team's state names.
   states:
     Todo: Todo

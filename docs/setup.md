@@ -55,7 +55,7 @@ security add-generic-password -s abt-linear -a "$USER" -w
 
 Your project's [adapter doc](reference/adapter-doc.md) will refer to it as `credentials: { keychain: abt-linear }`.
 
-> **Why the Keychain and not `LINEAR_API_KEY`?** launchd starts the runner with only `ABT_HOME` in its environment, so variables from your shell profile never reach it. An `env:` credential works for commands you run in a terminal, but not for the daemon. See [known limits](troubleshooting.md#known-limits-of-v1).
+> **Why the Keychain and not `LINEAR_API_KEY`?** launchd starts the runner with only `ABT_HOME` and your `PATH` in its environment, so other variables from your shell profile never reach it. An `env:` credential works for commands you run in a terminal, but not for the daemon. See [known limits](troubleshooting.md#known-limits-of-v1).
 
 ## 3. Load the plugin in Claude Code
 
@@ -71,11 +71,11 @@ Workers don't need this step: the runner loads the plugin for them from the pinn
 
 ## 4. Choose the abt home (optional)
 
-The **abt home** holds everything the runner owns: the decision logs, pins, worktrees, the runner's own logs and the pinned installs. It defaults to `~/.local/state/abt` (or `$XDG_STATE_HOME/abt`). To put it elsewhere, export `ABT_HOME` in your shell profile **before** you start the runner. `abt runner start` passes it on to launchd.
+The **abt home** holds everything the runner owns: the decision logs, pins, worktrees, the runner's own logs and the pinned installs. It defaults to `~/.local/state/abt` (or `$XDG_STATE_HOME/abt`). To put it elsewhere, export `ABT_HOME` in your shell profile **before** you start the runner. `abt runner start` passes it on to launchd, along with your `PATH`.
 
 ## 5. Configure the launch profile (optional)
 
-`~/.agents/abt/config.yaml` tells the runner how to start Claude Code. Every key has a default, so you can skip this file. You'll likely want to set `binary` to an absolute path, because launchd's PATH does not include Homebrew or npm global folders:
+`~/.agents/abt/config.yaml` tells the runner how to start Claude Code. Every key has a default, so you can skip this file. `binary` defaults to `claude`, looked up on the PATH `abt runner start` hands the runner; set an absolute path to pin a specific install:
 
 ```yaml
 launch-profiles:
@@ -99,11 +99,13 @@ This runs the startup self-test the runner runs before it dispatches anything: i
 The runner serves the projects listed in `$ABT_HOME/config.yaml`. That list is empty until you [onboard a project](onboarding.md), so you can start the runner now or after onboarding.
 
 ```bash
-abt runner start     # writes ~/Library/LaunchAgents/dev.abt.runner.plist and loads it
+abt runner start     # writes ~/Library/LaunchAgents/dev.abt.runner.plist with this shell's PATH, and loads it
 abt runner status    # "runner running (pid …, heartbeat 3s ago)"; exit 0 when running, 3 otherwise
 ```
 
 The runner's own output goes to `$ABT_HOME/runner.out.log` and `$ABT_HOME/runner.err.log`. At start it prints one line per project: `serving project "…"`, or `project "…" skipped: <reason>`.
+
+`runner start` refuses when `gh` or Claude Code isn't on your PATH, since a runner without them would fail every pass. Run it from a normal terminal, not a stripped-down environment.
 
 launchd keeps the runner alive and starts it at login. `abt runner stop` unloads it.
 

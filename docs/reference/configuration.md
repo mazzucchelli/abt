@@ -45,7 +45,7 @@ How the runner starts Claude Code for workers and judges. Every key is optional.
 ```yaml
 launch-profiles:
   claude-subscription:
-    binary: claude                          # use an absolute path: launchd's PATH is minimal
+    binary: claude                          # looked up on the PATH `runner start` captured; or an absolute path
     min-version: 2.1.293                    # oldest Claude Code accepted
     keychain: abt-claude-oauth              # Keychain item holding the token from `claude setup-token`
     models:                                 # pinned model IDs, never aliases

@@ -19,7 +19,7 @@ import { loadIsolation } from "../tracker/config.ts";
 import { WorkerEnvs } from "../workspace/env.ts";
 import { Runner, type RunnerProject } from "./daemon.ts";
 import { DispatchStore } from "./dispatch-store.ts";
-import { LaunchdAgent, systemLaunchctl } from "./launchd.ts";
+import { LAUNCHD_PATH, LaunchdAgent, missingOnPath, systemLaunchctl } from "./launchd.ts";
 import { LockError, processAlive, runnerStatus } from "./lock.ts";
 import { sendNudge } from "./socket.ts";
 import { TranscriptRetention } from "./retention.ts";
@@ -29,7 +29,7 @@ import { ProcessWorkers } from "./workers.ts";
 const USAGE = `usage: abt runner <command>
 
 commands:
-  start             install and load the launchd agent
+  start             install and load the launchd agent, with this shell's PATH
   stop              unload the launchd agent
   status            show whether the runner is running (exit 0) or not (exit 3)
   nudge <ticket>    ask the running runner for a pass on a ticket
@@ -42,15 +42,18 @@ export async function runnerCommand(args: string[]): Promise<number> {
   switch (sub) {
     case "start":
     case "stop": {
-      const agent = new LaunchdAgent({
-        launchctl: systemLaunchctl,
-        plistDir: join(homedir(), "Library", "LaunchAgents"),
-        uid: process.getuid?.() ?? 0,
-        home,
-        // The daemon runs the pinned install, never the checkout being edited; with none installed, this copy.
-        program: [process.execPath, "--disable-warning=ExperimentalWarning", pinnedCli(home), "runner", "run"],
-      });
+      const path = process.env.PATH || LAUNCHD_PATH;
+      const agent = launchdAgent(home, path);
       try {
+        if (sub === "start") {
+          // A daemon that can't find gh or Claude Code would only fail every pass, so it isn't started.
+          const missing = missingOnPath(daemonCommands(), path);
+          if (missing.length) {
+            for (const m of missing) console.error(`abt: ${m}`);
+            console.error("abt: runner not started: install it, or run `abt runner start` from a shell whose PATH finds it");
+            return 1;
+          }
+        }
         await (sub === "start" ? agent.start() : agent.stop());
       } catch (e) {
         console.error(`abt: ${(e as Error).message}`);
@@ -64,6 +67,14 @@ export async function runnerCommand(args: string[]): Promise<number> {
       const beat = s.heartbeatAgeMs === undefined ? "no heartbeat" : `heartbeat ${Math.round(s.heartbeatAgeMs / 1000)}s ago`;
       console.log(s.state === "stopped" ? "runner stopped" : `runner ${s.state} (pid ${s.pid}, ${beat})`);
       if (s.refused !== undefined) console.log(`dispatch refused: ${s.refused}`);
+      const path = launchdAgent(home).installedPath();
+      if (path !== undefined) {
+        try {
+          for (const m of missingOnPath(daemonCommands(), path)) console.log(`missing: ${m}`);
+        } catch (e) {
+          console.log(`launch profile: ${(e as Error).message}`);
+        }
+      }
       return s.state === "running" ? 0 : 3;
     }
     case "nudge": {
@@ -87,6 +98,27 @@ export async function runnerCommand(args: string[]): Promise<number> {
       console.error(USAGE.trimEnd());
       return 2;
   }
+}
+
+function launchdAgent(home: string, path?: string): LaunchdAgent {
+  return new LaunchdAgent({
+    launchctl: systemLaunchctl,
+    plistDir: join(homedir(), "Library", "LaunchAgents"),
+    uid: process.getuid?.() ?? 0,
+    home,
+    // The daemon runs the pinned install, never the checkout being edited; with none installed, this copy.
+    program: [process.execPath, "--disable-warning=ExperimentalWarning", pinnedCli(home), "runner", "run"],
+    ...(path !== undefined && { path }),
+  });
+}
+
+/** The commands the daemon runs by name, so its PATH must find them. Throws when the launch profile is invalid. */
+function daemonCommands(): { command: string; why: string }[] {
+  const profile = loadLaunchProfile({ home: homedir(), pluginDir: fileURLToPath(new URL("../..", import.meta.url)) });
+  return [
+    { command: "gh", why: "GitHub CLI, for every code-host call" },
+    { command: profile.binary, why: "Claude Code, the launch profile's binary" },
+  ];
 }
 
 /** The CLI of the current pinned install, through the `current` link so a launchd restart follows an upgrade or rollback; else this copy's. */
