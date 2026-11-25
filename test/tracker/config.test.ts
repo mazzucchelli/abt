@@ -81,3 +81,19 @@ test("research.review is read from the front matter, and only ack or auto are ac
   assert.deepEqual(parseAdapterDoc(withResearch("ack")).research, { review: "ack" });
   assert.throws(() => parseAdapterDoc(withResearch("yes")), AdapterConfigError);
 });
+
+test("Backlog and Duplicate default to the tracker state of the same name", () => {
+  const states = parseAdapterDoc(doc(valid)).tracker.states;
+  assert.equal(states.Backlog, "Backlog");
+  assert.equal(states.Duplicate, "Duplicate");
+});
+
+test("Backlog and Duplicate can be mapped to other tracker states", () => {
+  const states = parseAdapterDoc(doc(`${valid}\n    Backlog: Icebox\n    Duplicate: Dupe`)).tracker.states;
+  assert.equal(states.Backlog, "Icebox");
+  assert.equal(states.Duplicate, "Dupe");
+});
+
+test("a required state is still refused when unmapped", () => {
+  assert.throws(() => parseAdapterDoc(doc(valid.replace("    Needs you: Needs You\n", ""))), /"Needs you" is not mapped.*Backlog and Duplicate default/s);
+});

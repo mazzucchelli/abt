@@ -10,7 +10,7 @@ const TICKET = /^[A-Za-z0-9._-]+$/;
 
 /**
  * Retention for per-run transcripts, which live in `<runsDir>/<ticket>/`. The runner stamps a ticket's
- * folder when it sees the ticket in a terminal state (Done or Abandoned) and clears the stamp if the
+ * folder when it sees the ticket in a terminal state (Done, Abandoned or Duplicate) and clears the stamp if the
  * ticket is active again; `prune` removes the folders stamped more than 30 days ago. A folder with no stamp is never touched, and
  * nothing here knows where decision logs live, so they cannot be pruned.
  */

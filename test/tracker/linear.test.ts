@@ -235,3 +235,7 @@ test("linear: postReply is a plain comment with no abt marker", async () => {
   await tracker.postReply("ABT-1", "answer: use postgres");
   assert.deepEqual(input, { issueId: "ABT-1", body: "answer: use postgres" });
 });
+
+test("linear: a team without Backlog and Duplicate still starts, since abt never sets them", async () => {
+  await createLinearTracker(config, { apiKey: "k", fetch: setupResponse(allStates, allLabels) as typeof fetch });
+});

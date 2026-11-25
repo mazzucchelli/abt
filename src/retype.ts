@@ -2,7 +2,7 @@ import type { CodeHost } from "./codehost/contract.ts";
 import { ofKind, type AskPointRecord, type DecisionRecord } from "./log/record.ts";
 import type { DecisionLog } from "./log/store.ts";
 import { effectiveTier } from "./risk/assess.ts";
-import { RISK_TIERS, type RiskTier, type Tracker, type WorkType } from "./tracker/contract.ts";
+import { RISK_TIERS, isTerminal, type RiskTier, type Tracker, type WorkType } from "./tracker/contract.ts";
 import { branchFor } from "./workspace/branch.ts";
 import type { Workspace } from "./workspace/contract.ts";
 import type { WorkerEnvs } from "./workspace/env.ts";
@@ -25,7 +25,7 @@ export async function pendingRetype(tracker: Tracker, log: DecisionLog, ticket: 
   const t = await tracker.readTicket(ticket);
   const from = runningType(log.read(ticket));
   if (!from || !t.workType || t.workType === from) return undefined;
-  if (t.state === "Done" || t.state === "Abandoned") return undefined;
+  if (isTerminal(t.state)) return undefined;
   return { from, to: t.workType };
 }
 

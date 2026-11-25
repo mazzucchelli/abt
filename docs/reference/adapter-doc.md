@@ -55,6 +55,10 @@ Unknown keys are refused.
 | `Needs you` | waiting for your reply | add a **Needs You** state to the team |
 | `Done` | merged, or research accepted | Done |
 | `Abandoned` | stopped | Canceled |
+| `Backlog` | parked: abt never dispatches it until you move it to Todo | Backlog |
+| `Duplicate` | closed as a duplicate: terminal, like Done and Abandoned | Duplicate |
+
+`Backlog` and `Duplicate` are optional in the adapter doc: left out, each means the Linear state of the same name. abt never moves a ticket into either, it only recognises them, so a team that has removed them still starts.
 
 ## `isolation`
 

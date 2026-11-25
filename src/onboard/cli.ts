@@ -1,22 +1,26 @@
 import { execFileSync } from "node:child_process";
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { resolve } from "node:path";
 import { abtHome } from "../log/store.ts";
-import { BUNDLE_PATHS, buildBundle, openOnboardingPr } from "./bundle.ts";
+import { BUNDLE_PATHS, adapterDoc, buildBundle, openOnboardingPr } from "./bundle.ts";
+import { describeSetup, setupTracker } from "./tracker-setup.ts";
+import { resolveCredential, systemSources } from "../tracker/credentials.ts";
 import { GhHost, GhProbe, GitFiles, remoteDefaultBranch, systemExec } from "./github.ts";
 import { createInterface } from "node:readline/promises";
 import { acceptPins, checkPins, FilePins, settleOnboarding } from "./pins.ts";
 import { applyDraft, propose } from "./propose.ts";
-import type { CredentialRef } from "../tracker/config.ts";
+import { parseAdapterDoc, type CredentialRef } from "../tracker/config.ts";
 
 const USAGE = `usage: abt onboard probe [options]
        abt onboard open --team <key> [--credentials-keychain <item> | --credentials-env <VAR>] [--draft <merge-policy.yaml>] [options]
+       abt onboard tracker --team <key> [--credentials-keychain <item> | --credentials-env <VAR>] [--project <dir>]
        abt onboard settle [options]
        abt onboard pin [options]
 
 probe    read the project's facts and print the proposal: preset, policy draft, matched risk catalogue, gaps
 open     open the PR that adds the merge policy, facts snapshot, land tree, adapter doc and a CLAUDE.md pointer
+tracker  make the Linear team ready: create the Needs You state and the abt labels it is missing (the team must exist)
 settle   after you merged that PR by hand, record the pins of the protected files (the runner also does this on its scan)
 pin      record the pins again from the default branch, after you read a change to a protected file and agree with it
 
@@ -67,7 +71,7 @@ const systemIo = (): OnboardIo => ({
 export async function onboardCommand(args: string[], io: OnboardIo = systemIo()): Promise<number> {
   const [sub, ...rest] = args;
   const parsed = parse(rest);
-  if (!sub || !["probe", "open", "settle", "pin"].includes(sub) || !parsed) {
+  if (!sub || !["probe", "open", "tracker", "settle", "pin"].includes(sub) || !parsed) {
     console.error(USAGE.trimEnd());
     return 2;
   }
@@ -84,6 +88,7 @@ export async function onboardCommand(args: string[], io: OnboardIo = systemIo())
       return 1;
     }
   }
+  if (sub === "tracker") return trackerSetupCommand(repo, parsed.flags, io);
   try {
     const home = abtHome();
     const pins = new FilePins(home);
@@ -138,6 +143,29 @@ export async function onboardCommand(args: string[], io: OnboardIo = systemIo())
     const pr = await openOnboardingPr(host, proposal, bundle);
     await pins.writePending(project, pr.number);
     console.log(`Opened ${pr.url}. Merge it by hand; until then ${project} is pr-only. On that merge the runner pins the protected files.`);
+    return 0;
+  } catch (e) {
+    console.error(`abt: ${(e as Error).message}`);
+    return 1;
+  }
+}
+
+/** Creates what the team lacks. Names come from the project's adapter doc when it has one, else the defaults onboarding writes. */
+async function trackerSetupCommand(repo: string, flags: Record<string, string>, io: OnboardIo): Promise<number> {
+  const team = flags["--team"];
+  const credentials = trackerCredentials(flags);
+  if (!team || !credentials) {
+    console.error(USAGE.trimEnd());
+    return 2;
+  }
+  try {
+    const docPath = resolve(repo, BUNDLE_PATHS.adapter);
+    const doc = existsSync(docPath) ? parseAdapterDoc(readFileSync(docPath, "utf8")).tracker : parseAdapterDoc(adapterDoc({ team, credentials })).tracker;
+    const result = await setupTracker({
+      apiKey: resolveCredential(credentials, { env: io.env, keychain: systemSources.keychain }),
+      team, states: doc.states, labels: doc.labels,
+    });
+    console.log(describeSetup(team, result));
     return 0;
   } catch (e) {
     console.error(`abt: ${(e as Error).message}`);

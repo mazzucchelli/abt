@@ -1,6 +1,7 @@
 import type { TrackerConfig } from "./config.ts";
 import {
   LIFECYCLE_STATES,
+  OPTIONAL_STATES,
   RISK_TIERS,
   WORK_TYPES,
   REPLY_KIND,
@@ -79,7 +80,8 @@ export async function createLinearTracker(config: TrackerConfig, opts: LinearOpt
   const stateIds = new Map(setup.team.states.nodes.map((s) => [s.name, s.id]));
   const labelIds = new Map(setup.issueLabels.nodes.map((l) => [l.name, l.id]));
 
-  const missingStates = LIFECYCLE_STATES.filter((s) => !stateIds.has(config.states[s]));
+  // Backlog and Duplicate are never set by abt, only recognised: a team that has dropped them is still fine.
+  const missingStates = LIFECYCLE_STATES.filter((s) => !OPTIONAL_STATES.includes(s) && !stateIds.has(config.states[s]));
   if (missingStates.length > 0) {
     throw new Error(
       `adapter doc maps lifecycle states to Linear states that team ${config.team} does not have: ` +

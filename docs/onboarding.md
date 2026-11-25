@@ -8,7 +8,7 @@ Until the onboarding PR is merged, the project is **pr-only**: abt opens PRs and
 
 - The [machine setup](setup.md) is done: `abt` is on your PATH, the plugin is loaded, `gh` is signed in.
 - The project is a git checkout whose `origin` is on GitHub, and its default branch is fetched.
-- The Linear team for the project has the six workflow states abt needs (it maps them by name; see [adapter doc](reference/adapter-doc.md#states)) and the labels `abt`, `implement`, `research`, `spike`, `bootstrap`, `risk:low`, `risk:medium`, `risk:high` (or your own names, mapped in the adapter doc).
+- The Linear team for the project exists. Create it in Linear yourself; `abt onboard tracker --team <key>` then adds what it lacks: the `Needs You` workflow state and the labels `abt`, `implement`, `research`, `spike`, `bootstrap`, `risk:low`, `risk:medium`, `risk:high`. A new team already has the other states abt maps (see [adapter doc](reference/adapter-doc.md#states)), including Backlog and Duplicate. Run it again any time: it creates only what is missing.
 
 ### What makes a project ready for autonomous merge
 
