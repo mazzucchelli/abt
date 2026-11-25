@@ -1,14 +1,26 @@
 /** The closed tracker contract: twelve operations, tracker-neutral. */
 
 export const LIFECYCLE_STATES = [
+  "Backlog",
   "Todo",
   "In progress",
   "In review",
   "Needs you",
   "Done",
   "Abandoned",
+  "Duplicate",
 ] as const;
 export type LifecycleState = (typeof LIFECYCLE_STATES)[number];
+
+/**
+ * States a ticket leaves for good: the run is over and nothing here moves it again.
+ * Backlog is the opposite: parked, never dispatched, until the owner moves it to Todo.
+ */
+export const TERMINAL_STATES: readonly LifecycleState[] = ["Done", "Abandoned", "Duplicate"];
+export const isTerminal = (s: LifecycleState): boolean => TERMINAL_STATES.includes(s);
+
+/** Lifecycle states an adapter doc may leave unmapped: they default to the tracker state of the same name. */
+export const OPTIONAL_STATES: readonly LifecycleState[] = ["Backlog", "Duplicate"];
 
 export const WORK_TYPES = ["implement", "research", "spike", "bootstrap"] as const;
 export type WorkType = (typeof WORK_TYPES)[number];

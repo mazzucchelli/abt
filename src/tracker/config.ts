@@ -4,6 +4,7 @@ import { parse } from "yaml";
 import type { IsolationConfig } from "../workspace/env.ts";
 import {
   LIFECYCLE_STATES,
+  OPTIONAL_STATES,
   RISK_TIERS,
   WORK_TYPES,
   type LifecycleState,
@@ -142,9 +143,11 @@ function states(v: unknown): Record<LifecycleState, string> {
   const out = {} as Record<LifecycleState, string>;
   const owner = new Map<string, LifecycleState>();
   for (const s of LIFECYCLE_STATES) {
-    if (o[s] === undefined) {
+    if (o[s] === undefined && OPTIONAL_STATES.includes(s)) {
+      o[s] = s;
+    } else if (o[s] === undefined) {
       throw new AdapterConfigError(
-        `lifecycle state "${s}" is not mapped: add it under tracker.states in the adapter doc (all of ${LIFECYCLE_STATES.join(", ")} are required)`,
+        `lifecycle state "${s}" is not mapped: add it under tracker.states in the adapter doc (all of ${LIFECYCLE_STATES.filter((x) => !OPTIONAL_STATES.includes(x)).join(", ")} are required; ${OPTIONAL_STATES.join(" and ")} default to the tracker state of the same name)`,
       );
     }
     out[s] = text(o[s], `tracker.states.${s}`);

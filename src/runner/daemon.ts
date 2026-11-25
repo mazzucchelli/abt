@@ -21,7 +21,7 @@ import type { Workspace } from "../workspace/contract.ts";
 import type { WorkerEnvs } from "../workspace/env.ts";
 import type { LandingGuard } from "../landing/guard.ts";
 import type { Notifier } from "../notify/contract.ts";
-import { LIFECYCLE_STATES, type LifecycleState } from "../tracker/contract.ts";
+import { LIFECYCLE_STATES, isTerminal, type LifecycleState } from "../tracker/contract.ts";
 
 /** Tickets waiting on a worker, CI or an approval are re-run this often. */
 export const POLL_MS = 60_000;
@@ -222,7 +222,7 @@ export class Runner {
       for (const { ticket, since } of retention.tickets()) {
         const state = (await this.#owner(ticket))?.ticket.state;
         if (state === undefined) continue; // no served project knows it: leave it alone
-        if (state === "Done" || state === "Abandoned") retention.markTerminal(ticket);
+        if (isTerminal(state)) retention.markTerminal(ticket);
         else if (since !== undefined) retention.clearTerminal(ticket);
       }
       retention.prune();

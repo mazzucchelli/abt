@@ -13,7 +13,7 @@ import type { Notifier } from "./notify/contract.ts";
 import type { Clock } from "./clock.ts";
 import { isScalar, parseDocument, visit } from "yaml";
 import { parseTree, TreeError } from "./tree.ts";
-import { hasTree, noTreeReason } from "./tracker/contract.ts";
+import { hasTree, isTerminal, noTreeReason } from "./tracker/contract.ts";
 import { LayeredTrees, resolveTree, type TreeStore } from "./trees.ts";
 import { checkPins, type PinCheck, type PinStore } from "./onboard/pins.ts";
 import type { DefaultBranchFiles } from "./onboard/host.ts";
@@ -72,7 +72,7 @@ export async function runTicket(deps: TicketRunDeps): Promise<TicketRunResult> {
   let first = await tracker.readTicket(ticket);
   // A worker that sees a type mismatch can only ask: the ask-point it left goes to the human, once.
   const asked = unraisedRetypeAsk(log.read(ticket));
-  if (asked && first.state !== "Needs you" && first.state !== "Done" && first.state !== "Abandoned") {
+  if (asked && first.state !== "Needs you" && !isTerminal(first.state)) {
     await raiseAskPoint(
       { tracker, log, ...(deps.notifier && { notifier: deps.notifier }) },
       {
@@ -98,7 +98,7 @@ export async function runTicket(deps: TicketRunDeps): Promise<TicketRunResult> {
   }
   const { pins } = deps;
   const pin = pins ? await checkPins(pins.files, pins.store, pins.project) : undefined;
-  if (pins && pin?.status === "mismatch" && first.state !== "Done" && first.state !== "Abandoned") {
+  if (pins && pin?.status === "mismatch" && !isTerminal(first.state)) {
     const why = `protected abt files changed without their pin: ${pin.changed.join(", ")}`;
     escalate(deps, run, why, "the owner to read the change and, if it is right, re-pin with `abt onboard pin`", pins.project);
     await finish(deps, "fail", "Needs you");
