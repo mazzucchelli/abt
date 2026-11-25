@@ -110,22 +110,52 @@ test("credentials resolve from env or Keychain and fail loudly when absent", () 
   assert.throws(() => resolveCredential({ keychain: "nope" }, sources), /Keychain item "nope"/);
 });
 
-test("linear: setRisk adds the tier label and removes the other tier labels, touching nothing else", async () => {
-  let update: { id: string; input: Record<string, unknown> } | undefined;
-  const tracker = await createLinearTracker(config, {
-    apiKey: "k",
-    fetch: (async (_u: unknown, init: RequestInit) => {
-      const { query, variables } = JSON.parse(String(init.body));
-      if (/issueUpdate/.test(query)) {
-        update = variables;
-        return new Response(JSON.stringify({ data: { issueUpdate: { success: true } } }));
+/** A fake Linear that tracks one issue's labels and, like the real one, refuses to remove a label the issue lacks. */
+const labelledIssue = (initial: string[]) => {
+  const labels = new Set(initial);
+  const updates: Record<string, unknown>[] = [];
+  const fetchImpl = (async (_u: unknown, init: RequestInit) => {
+    const { query, variables } = JSON.parse(String(init.body));
+    if (/issueUpdate/.test(query)) {
+      const { addedLabelIds = [], removedLabelIds = [] } = variables.input as { addedLabelIds?: string[]; removedLabelIds?: string[] };
+      updates.push(variables.input);
+      for (const l of removedLabelIds) {
+        if (!labels.has(l)) return new Response(JSON.stringify({ errors: [{ message: "Label not on issue" }] }));
+        labels.delete(l);
       }
-      return setupResponse(allStates, allLabels)();
-    }) as typeof fetch,
-  });
+      for (const l of addedLabelIds) labels.add(l);
+      return new Response(JSON.stringify({ data: { issueUpdate: { success: true } } }));
+    }
+    if (/issue\(id/.test(query)) {
+      const issue = {
+        identifier: "ABT-1",
+        title: "t",
+        description: null,
+        state: { name: "Todo" },
+        assignee: null,
+        labels: { nodes: [...labels].map((name) => ({ name })) },
+        attachments: { nodes: [] },
+      };
+      return new Response(JSON.stringify({ data: { issue } }));
+    }
+    return setupResponse(allStates, allLabels)();
+  }) as typeof fetch;
+  return { labels, updates, fetch: fetchImpl };
+};
+
+test("linear: setRisk adds the tier label and removes only the other tier labels the ticket has", async () => {
+  const linear = labelledIssue(["abt", "risk:low", "risk:medium"]);
+  const tracker = await createLinearTracker(config, { apiKey: "k", fetch: linear.fetch });
   await tracker.setRisk("ABT-1", "high");
-  assert.equal(update!.id, "ABT-1");
-  assert.deepEqual(update!.input, { addedLabelIds: ["risk:high"], removedLabelIds: ["risk:low", "risk:medium"] });
+  assert.deepEqual(linear.updates, [{ addedLabelIds: ["risk:high"], removedLabelIds: ["risk:low", "risk:medium"] }]);
+  assert.deepEqual([...linear.labels].sort(), ["abt", "risk:high"]);
+});
+
+test("linear: setRisk on a ticket with no risk label removes nothing", async () => {
+  const linear = labelledIssue(["abt"]);
+  const tracker = await createLinearTracker(config, { apiKey: "k", fetch: linear.fetch });
+  await tracker.setRisk("ABT-1", "high");
+  assert.deepEqual(linear.updates, [{ addedLabelIds: ["risk:high"], removedLabelIds: [] }]);
 });
 
 test("linear: a comment abt did not write is read back as a reply by its author, and the ticket names its owner and url", async () => {
@@ -154,23 +184,19 @@ test("linear: a comment abt did not write is read back as a reply by its author,
   assert.deepEqual(comments.map((c) => [c.id, c.kind, c.author]), [["c1", "ask-point", undefined], ["c2", "reply", "u-owner"]]);
 });
 
-test("linear: enqueue is one issue update that adds the abt marker and the work type and removes the other work types", async () => {
-  const updates: { id: string; input: Record<string, unknown> }[] = [];
-  const tracker = await createLinearTracker(config, {
-    apiKey: "k",
-    fetch: (async (_u: unknown, init: RequestInit) => {
-      const { query, variables } = JSON.parse(String(init.body));
-      if (/issueUpdate/.test(query)) {
-        updates.push(variables);
-        return new Response(JSON.stringify({ data: { issueUpdate: { success: true } } }));
-      }
-      return setupResponse(allStates, allLabels)();
-    }) as typeof fetch,
-  });
+test("linear: enqueue adds the abt marker and the work type and removes only the other work types the ticket has", async () => {
+  const linear = labelledIssue(["abt", "implement", "spike"]);
+  const tracker = await createLinearTracker(config, { apiKey: "k", fetch: linear.fetch });
   await tracker.enqueue("ABT-1", "research");
-  assert.deepEqual(updates, [
-    { id: "ABT-1", input: { addedLabelIds: ["abt", "research"], removedLabelIds: ["implement", "spike", "bootstrap"] } },
-  ]);
+  assert.deepEqual(linear.updates, [{ addedLabelIds: ["abt", "research"], removedLabelIds: ["implement", "spike"] }]);
+  assert.deepEqual([...linear.labels].sort(), ["abt", "research"]);
+});
+
+test("linear: enqueue on a fresh ticket that carries none of the other work types removes nothing", async () => {
+  const linear = labelledIssue(["abt", "implement"]);
+  const tracker = await createLinearTracker(config, { apiKey: "k", fetch: linear.fetch });
+  await tracker.enqueue("ABT-1", "implement");
+  assert.deepEqual(linear.updates, [{ addedLabelIds: ["abt", "implement"], removedLabelIds: [] }]);
 });
 
 test("linear: addBlocker creates a blocks relation from the blocker to the ticket", async () => {

@@ -126,6 +126,12 @@ export async function createLinearTracker(config: TrackerConfig, opts: LinearOpt
   const readIssue = async (id: string) =>
     (await gql<{ issue: IssueNode }>(`query($id: String!) { issue(id: $id) { ${ISSUE_FIELDS} } }`, { id })).issue;
 
+  /** Ids of those named labels the issue carries now: Linear rejects removing a label an issue lacks. */
+  const labelIdsOnIssue = async (id: string, candidates: string[]) => {
+    const has = new Set((await readIssue(id)).labels.nodes.map((l) => l.name));
+    return candidates.filter((l) => has.has(l)).map((l) => labelIds.get(l)!);
+  };
+
   const update = async (id: string, input: Record<string, unknown>) => {
     const r = await gql<{ issueUpdate: { success: boolean } }>(
       `mutation($id: String!, $input: IssueUpdateInput!) { issueUpdate(id: $id, input: $input) { success } }`,
@@ -257,7 +263,10 @@ export async function createLinearTracker(config: TrackerConfig, opts: LinearOpt
       const names = config.labels.workType;
       await update(id, {
         addedLabelIds: [labelIds.get(config.labels.abt)!, labelIds.get(names[workType])!],
-        removedLabelIds: WORK_TYPES.filter((w) => w !== workType).map((w) => labelIds.get(names[w])!),
+        removedLabelIds: await labelIdsOnIssue(
+          id,
+          WORK_TYPES.filter((w) => w !== workType).map((w) => names[w]),
+        ),
       });
     },
 
@@ -273,7 +282,10 @@ export async function createLinearTracker(config: TrackerConfig, opts: LinearOpt
       const names = config.labels.risk;
       await update(id, {
         addedLabelIds: [labelIds.get(names[tier])!],
-        removedLabelIds: RISK_TIERS.filter((r) => r !== tier).map((r) => labelIds.get(names[r])!),
+        removedLabelIds: await labelIdsOnIssue(
+          id,
+          RISK_TIERS.filter((r) => r !== tier).map((r) => names[r]),
+        ),
       });
     },
 
